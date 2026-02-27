@@ -1,0 +1,8 @@
+node_modules/
+dist/
+public/models/
+public/thumbnails/
+*.stl
+*.log
+.DS_Store
+bun.lockb

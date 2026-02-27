@@ -1,0 +1,27 @@
+{
+  "name": "homeracker-configurator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run scripts/dev-server.ts",
+    "build": "bun run scripts/build.ts",
+    "generate-models": "bash scripts/generate-models.sh",
+    "test:e2e": "bun run scripts/e2e-test.ts",
+    "test:e2e:headed": "HEADED=1 bun run scripts/e2e-test.ts"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "three": "^0.172.0",
+    "@react-three/fiber": "^9.0.0",
+    "@react-three/drei": "^10.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/three": "^0.172.0",
+    "puppeteer": "^24.37.5",
+    "typescript": "^5.7.0"
+  }
+}

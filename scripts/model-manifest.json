@@ -1,0 +1,27 @@
+{
+  "supports": [
+    {"id": "support-1u", "scad": "models/core/parts/support.scad", "params": {"units": 1, "x_holes": false}},
+    {"id": "support-2u", "scad": "models/core/parts/support.scad", "params": {"units": 2, "x_holes": false}},
+    {"id": "support-3u", "scad": "models/core/parts/support.scad", "params": {"units": 3, "x_holes": false}},
+    {"id": "support-4u", "scad": "models/core/parts/support.scad", "params": {"units": 4, "x_holes": false}},
+    {"id": "support-5u", "scad": "models/core/parts/support.scad", "params": {"units": 5, "x_holes": false}},
+    {"id": "support-10u", "scad": "models/core/parts/support.scad", "params": {"units": 10, "x_holes": false}},
+    {"id": "support-17u", "scad": "models/core/parts/support.scad", "params": {"units": 17, "x_holes": false}}
+  ],
+  "connectors": [
+    {"id": "connector-1d2w", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 1, "directions": 2, "pull_through_axis": "none", "is_foot": false, "optimal_orientation": false}},
+    {"id": "connector-2d2w", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 2, "directions": 2, "pull_through_axis": "none", "is_foot": false, "optimal_orientation": false}},
+    {"id": "connector-2d3w", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 2, "directions": 3, "pull_through_axis": "none", "is_foot": false, "optimal_orientation": false}},
+    {"id": "connector-2d4w", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 2, "directions": 4, "pull_through_axis": "none", "is_foot": false, "optimal_orientation": false}},
+    {"id": "connector-3d3w", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 3, "directions": 3, "pull_through_axis": "none", "is_foot": false, "optimal_orientation": false}},
+    {"id": "connector-3d4w", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 3, "directions": 4, "pull_through_axis": "none", "is_foot": false, "optimal_orientation": false}},
+    {"id": "connector-3d5w", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 3, "directions": 5, "pull_through_axis": "none", "is_foot": false, "optimal_orientation": false}},
+    {"id": "connector-3d6w", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 3, "directions": 6, "pull_through_axis": "none", "is_foot": false, "optimal_orientation": false}},
+    {"id": "connector-2d2w-foot", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 2, "directions": 2, "pull_through_axis": "none", "is_foot": true, "optimal_orientation": false}},
+    {"id": "connector-3d4w-foot", "scad": "models/core/parts/connector.scad", "params": {"dimensions": 3, "directions": 4, "pull_through_axis": "none", "is_foot": true, "optimal_orientation": false}}
+  ],
+  "lockpins": [
+    {"id": "lockpin-standard", "scad": "models/core/parts/lockpin.scad", "params": {"grip_type": "standard"}},
+    {"id": "lockpin-no-grip", "scad": "models/core/parts/lockpin.scad", "params": {"grip_type": "no_grip"}}
+  ]
+}

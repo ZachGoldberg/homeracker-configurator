@@ -1,0 +1,284 @@
+/* HomeRacker Configurator Styles */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-tertiary: #0f3460;
+  --text-primary: #e4e4e4;
+  --text-secondary: #a0a0a0;
+  --accent: #f7b600;
+  --accent-blue: #0056b3;
+  --danger: #c41e3a;
+  --border: #2a2a4a;
+  --sidebar-width: 240px;
+  --bom-width: 260px;
+  --toolbar-height: 44px;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* App Layout */
+.app {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Sidebar */
+.sidebar {
+  width: var(--sidebar-width);
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.sidebar-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.sidebar-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.catalog-section {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.catalog-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+.catalog-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.catalog-item {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.catalog-item:hover {
+  border-color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+.catalog-item.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #000;
+}
+
+.catalog-item-preview {
+  width: 100%;
+  height: 40px;
+  border-radius: 4px;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.catalog-item-icon {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.catalog-item-name {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Toolbar */
+.toolbar {
+  height: var(--toolbar-height);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.toolbar-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.toolbar-btn:hover {
+  background: var(--accent-blue);
+}
+
+.toolbar-btn-danger:hover {
+  background: var(--danger);
+}
+
+.toolbar-mode-label {
+  font-size: 12px;
+  color: var(--accent);
+  padding: 0 8px;
+}
+
+/* Viewport */
+.viewport {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+
+.viewport canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.viewport-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.7);
+  color: var(--text-primary);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* BOM Panel */
+.bom-panel {
+  width: var(--bom-width);
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.bom-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bom-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bom-export-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.bom-export-btn:hover {
+  background: var(--accent-blue);
+}
+
+.bom-empty {
+  padding: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.bom-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.bom-table th {
+  text-align: left;
+  padding: 8px 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bom-table td {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bom-qty {
+  text-align: right;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.bom-total {
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  border-top: 2px solid var(--border);
+}
