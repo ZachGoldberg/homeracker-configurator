@@ -28,7 +28,7 @@ const server = Bun.serve({
     const url = new URL(req.url);
     let pathname = url.pathname;
 
-    if (pathname.startsWith("/src/")) {
+    if (pathname.startsWith("/src/") && /\.(tsx?|jsx?)$/.test(pathname)) {
       const mapped = pathname.replace("/src/", "").replace(".tsx", ".js").replace(".ts", ".js");
       const file = Bun.file(join(DIST_DIR, mapped));
       if (await file.exists()) return new Response(file, { headers: { "Content-Type": "application/javascript" } });
@@ -37,7 +37,12 @@ const server = Bun.serve({
     if (pathname !== "/" && pathname !== "/index.html") {
       for (const dir of [PUBLIC_DIR, PROJECT_ROOT, DIST_DIR]) {
         const file = Bun.file(join(dir, pathname));
-        if (await file.exists()) return new Response(file);
+        if (await file.exists()) {
+          const headers: Record<string, string> = {};
+          if (pathname.endsWith(".css")) headers["Content-Type"] = "text/css";
+          else if (pathname.endsWith(".js")) headers["Content-Type"] = "application/javascript";
+          return new Response(file, { headers });
+        }
       }
     }
 
@@ -68,6 +73,40 @@ page.on("pageerror", (err) => console.error("[PAGE ERR]", err.message));
 
 await page.goto(baseUrl, { waitUntil: "networkidle0", timeout: 15000 });
 await new Promise((r) => setTimeout(r, 2000));
+
+// Build a small assembly so the screenshot isn't empty
+await page.evaluate(() => {
+  const asm = (window as any).__assembly;
+  if (!asm) return;
+  asm.clear();
+
+  // Bottom layer: 4 foot connectors at corners
+  asm.addPart("connector-3d4w-foot", [0, 0, 0]);
+  asm.addPart("connector-3d4w-foot", [5, 0, 0]);
+  asm.addPart("connector-3d4w-foot", [0, 0, 5]);
+  asm.addPart("connector-3d4w-foot", [5, 0, 5]);
+
+  // Vertical supports on each corner
+  asm.addPart("support-5u", [0, 1, 0], [0, 0, 0], "y");
+  asm.addPart("support-5u", [5, 1, 0], [0, 0, 0], "y");
+  asm.addPart("support-5u", [0, 1, 5], [0, 0, 0], "y");
+  asm.addPart("support-5u", [5, 1, 5], [0, 0, 0], "y");
+
+  // Horizontal supports along X axis (front and back)
+  asm.addPart("support-5u", [1, 0, 0], [0, 0, 0], "x");
+  asm.addPart("support-5u", [1, 0, 5], [0, 0, 0], "x");
+
+  // Horizontal supports along Z axis (left and right)
+  asm.addPart("support-5u", [0, 0, 1], [0, 0, 0], "z");
+  asm.addPart("support-5u", [5, 0, 1], [0, 0, 0], "z");
+
+  // Top connectors
+  asm.addPart("connector-3d4w", [0, 6, 0]);
+  asm.addPart("connector-3d4w", [5, 6, 0]);
+  asm.addPart("connector-3d4w", [0, 6, 5]);
+  asm.addPart("connector-3d4w", [5, 6, 5]);
+});
+await new Promise((r) => setTimeout(r, 3000));
 
 const screenshotPath = join(PROJECT_ROOT, "screenshot.png");
 await page.screenshot({ path: screenshotPath, fullPage: false });
