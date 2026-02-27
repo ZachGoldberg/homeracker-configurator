@@ -668,12 +668,69 @@ function DragPreview({
   );
 }
 
-/** Expose the R3F scene on window for e2e testing */
+/** Expose the R3F scene, camera, and controls on window for e2e testing */
 function ExposeScene() {
-  const { scene } = useThree();
+  const { scene, camera, controls } = useThree();
   useEffect(() => {
     (window as any).__scene = scene;
-  }, [scene]);
+    (window as any).__camera = camera;
+    (window as any).__controls = controls;
+  }, [scene, camera, controls]);
+  return null;
+}
+
+/** On first render with parts, fit camera to show all placed parts */
+function FitCamera({ parts }: { parts: PlacedPart[] }) {
+  const { camera, controls } = useThree();
+  const fitted = useRef(false);
+
+  useEffect(() => {
+    if (fitted.current || parts.length === 0) return;
+    // Wait for OrbitControls to register via makeDefault
+    const orbitControls = controls as any;
+    if (!orbitControls?.target) return;
+
+    fitted.current = true;
+
+    // Compute bounding box of all part world positions
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (const part of parts) {
+      const def = getPartDefinition(part.definitionId);
+      if (!def) continue;
+      const orient = part.orientation ?? "y";
+      const orientedCells = def.gridCells.map((c) => transformCell(c, orient));
+      const cells = rotateGridCells(orientedCells, part.rotation);
+      for (const cell of cells) {
+        const wx = (part.position[0] + cell[0]) * BASE_UNIT;
+        const wy = (part.position[1] + cell[1]) * BASE_UNIT + BASE_UNIT / 2;
+        const wz = (part.position[2] + cell[2]) * BASE_UNIT;
+        minX = Math.min(minX, wx); maxX = Math.max(maxX, wx + BASE_UNIT);
+        minY = Math.min(minY, wy); maxY = Math.max(maxY, wy + BASE_UNIT);
+        minZ = Math.min(minZ, wz); maxZ = Math.max(maxZ, wz + BASE_UNIT);
+      }
+    }
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const cz = (minZ + maxZ) / 2;
+    const dx = maxX - minX;
+    const dy = maxY - minY;
+    const dz = maxZ - minZ;
+    const radius = Math.sqrt(dx * dx + dy * dy + dz * dz) / 2;
+
+    // Position camera so the bounding sphere fits in view
+    const fov = (camera as THREE.PerspectiveCamera).fov ?? 50;
+    const dist = Math.max(radius / Math.tan((fov / 2) * Math.PI / 180), 100);
+
+    camera.position.set(cx + dist * 0.6, cy + dist * 0.7, cz + dist * 0.6);
+    camera.lookAt(cx, cy, cz);
+    camera.updateProjectionMatrix();
+
+    orbitControls.target.set(cx, cy, cz);
+    orbitControls.update();
+  }, [parts, camera, controls]);
+
   return null;
 }
 
@@ -722,6 +779,7 @@ function Scene({
   return (
     <>
       <ExposeScene />
+      <FitCamera parts={parts} />
       {/* Lighting */}
       <ambientLight intensity={2.5} />
       <directionalLight position={[100, 200, 100]} intensity={1.5} castShadow />

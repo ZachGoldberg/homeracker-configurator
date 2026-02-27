@@ -8,6 +8,7 @@ import { HistoryManager, type Command } from "../assembly/HistoryManager";
 import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3 } from "../types";
 import { getPartDefinition } from "../data/catalog";
 import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints } from "../assembly/snap";
+import { computeGroundLift } from "../assembly/grid-utils";
 import { restoreCustomParts, importSTL } from "../data/custom-parts";
 
 // Global singleton instances
@@ -42,6 +43,7 @@ assembly.subscribe(() => {
 (window as any).__assembly = assembly;
 (window as any).__snap = { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints };
 (window as any).__importSTL = importSTL;
+(window as any).__computeGroundLift = computeGroundLift;
 
 export function App() {
   const [ready, setReady] = useState(false);

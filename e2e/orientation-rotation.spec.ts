@@ -142,6 +142,92 @@ test.describe("Rotation blocks below-ground placement", () => {
   });
 });
 
+test.describe("Auto-lift: rotation pushes part above ground", () => {
+  test("computeGroundLift returns correct offset for rotated support", async ({
+    appPage: page,
+  }) => {
+    const results = await page.evaluate(() => {
+      const lift = (window as any).__computeGroundLift;
+      const a = (window as any).__assembly;
+
+      // Get support-3u definition (gridCells: [0,0,0],[0,1,0],[0,2,0])
+      const def = { gridCells: [[0,0,0],[0,1,0],[0,2,0]], connectionPoints: [], category: "support" };
+
+      return {
+        // No rotation → minY = 0 → lift = 0
+        noRot: lift(def, [0, 0, 0], "y"),
+        // 90° X → cells become [0,0,0],[0,0,1],[0,0,2] → minY = 0 → lift = 0
+        rot90x: lift(def, [90, 0, 0], "y"),
+        // 180° X → cells become [0,0,0],[0,-1,0],[0,-2,0] → minY = -2 → lift = 2
+        rot180x: lift(def, [180, 0, 0], "y"),
+        // 270° X → cells become [0,0,0],[0,0,-1],[0,0,-2] → minY = 0 → lift = 0
+        rot270x: lift(def, [270, 0, 0], "y"),
+        // 90° Z → [x,y,z] → [-y,x,z] → cells [0,0,0],[-1,0,0],[-2,0,0] → minY = 0 → lift = 0
+        rot90z: lift(def, [0, 0, 90], "y"),
+      };
+    });
+
+    expect(results.noRot).toBe(0);
+    expect(results.rot90x).toBe(0);
+    expect(results.rot180x).toBe(2);
+    expect(results.rot270x).toBe(0);
+    expect(results.rot90z).toBe(0);
+  });
+
+  test("computeGroundLift accounts for connector arm directions", async ({
+    appPage: page,
+  }) => {
+    const results = await page.evaluate(() => {
+      const lift = (window as any).__computeGroundLift;
+
+      // Simulate a connector with a -y arm (like 3d6w)
+      const def = {
+        gridCells: [[0, 0, 0]],
+        connectionPoints: [
+          { offset: [0, 0, 0], direction: "+y" },
+          { offset: [0, 0, 0], direction: "-y" },
+          { offset: [0, 0, 0], direction: "+x" },
+        ],
+        category: "connector",
+      };
+
+      return {
+        // No rotation: -y arm → adjacent [0,-1,0] → lift = 1
+        noRot: lift(def, [0, 0, 0], "y"),
+        // 90° X rotation: -y becomes +z, so no arm below ground → lift = 0
+        rot90x: lift(def, [90, 0, 0], "y"),
+      };
+    });
+
+    expect(results.noRot).toBe(1);
+    expect(results.rot90x).toBe(0);
+  });
+
+  test("support with 180° X rotation can be placed at lifted Y", async ({
+    appPage: page,
+  }) => {
+    const result = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      a.clear();
+
+      // 180° X at Y=0: cells go to Y=-1,-2 → canPlace fails
+      const blockedAtGround = a.canPlace("support-3u", [0, 0, 0], [180, 0, 0]);
+
+      // At Y=2 (the lift value): cells become [0,2,0],[0,1,0],[0,0,0] → all Y >= 0
+      const okAtLifted = a.canPlace("support-3u", [0, 2, 0], [180, 0, 0]);
+
+      // Actually place it at the lifted position
+      const placedId = a.addPart("support-3u", [0, 2, 0], [180, 0, 0]);
+
+      return { blockedAtGround, okAtLifted, placed: placedId !== null };
+    });
+
+    expect(result.blockedAtGround).toBe(false);
+    expect(result.okAtLifted).toBe(true);
+    expect(result.placed).toBe(true);
+  });
+});
+
 test.describe("Orientation keyboard hint", () => {
   test("support hint mentions orientation, connector mentions rotate", async ({
     appPage: page,
