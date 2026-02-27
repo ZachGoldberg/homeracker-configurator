@@ -52,26 +52,47 @@ function connectorDef(
   };
 }
 
-/** MVP catalog — core parts only */
+/** Full catalog — all supports (1-18u), all connectors, lock pins */
 export const PART_CATALOG: PartDefinition[] = [
-  // Supports (3 sizes for MVP)
-  supportDef(3),
-  supportDef(5),
-  supportDef(10),
+  // Supports (1u through 18u)
+  ...Array.from({ length: 18 }, (_, i) => supportDef(i + 1)),
 
-  // Connectors (key variants for MVP)
+  // Connectors — all base variants
+  connectorDef("1d1w"),
+  connectorDef("1d2w"),
   connectorDef("2d2w"),
+  connectorDef("2d3w"),
   connectorDef("2d4w"),
+  connectorDef("3d3w"),
   connectorDef("3d4w"),
+  connectorDef("3d5w"),
   connectorDef("3d6w"),
 
-  // Lock pin
+  // Connectors — foot variants
+  connectorDef("2d2w", true),
+  connectorDef("2d3w", true),
+  connectorDef("2d4w", true),
+  connectorDef("3d3w", true),
+  connectorDef("3d4w", true),
+  connectorDef("3d5w", true),
+  connectorDef("3d6w", true),
+
+  // Lock pins
   {
     id: "lockpin-standard",
     category: "lockpin",
     name: "Lock Pin",
     description: "Standard 4mm square lock pin with grip",
     modelPath: "models/lockpin-standard.glb",
+    connectionPoints: [],
+    gridCells: [[0, 0, 0]],
+  },
+  {
+    id: "lockpin-no-grip",
+    category: "lockpin",
+    name: "Lock Pin (No Grip)",
+    description: "4mm square lock pin without grip",
+    modelPath: "models/lockpin-no-grip.glb",
     connectionPoints: [],
     gridCells: [[0, 0, 0]],
   },

@@ -130,10 +130,17 @@ const catalogItems = await page.evaluate(() => {
   }));
 });
 
-assert("Catalog has 8 items (4 connectors + 3 supports + 1 lockpin)", catalogItems.length === 8, `got ${catalogItems.length}`);
+// 18 supports + 9 connectors + 7 foot connectors + 2 lock pins = 36
+assert("Catalog has 36 items", catalogItems.length === 36, `got ${catalogItems.length}`);
 assert("No item is active initially", catalogItems.every((i) => !i.active));
 
-const expectedParts = ["2D 2-Way", "2D 4-Way", "3D 4-Way", "3D 6-Way", "Support (3u)", "Support (5u)", "Support (10u)", "Lock Pin"];
+const expectedParts = [
+  "Support (1u)", "Support (5u)", "Support (10u)", "Support (18u)",
+  "1D 1-Way", "1D 2-Way", "2D 2-Way", "2D 3-Way", "2D 4-Way",
+  "3D 3-Way", "3D 4-Way", "3D 5-Way", "3D 6-Way",
+  "2D 2-Way Foot", "3D 4-Way Foot",
+  "Lock Pin", "Lock Pin (No Grip)",
+];
 for (const name of expectedParts) {
   assert(`Catalog contains "${name}"`, catalogItems.some((i) => i.name === name));
 }
@@ -206,14 +213,28 @@ const partIds = await page.evaluate(() => {
 });
 
 const partNameToId: Record<string, string> = {
+  // Connectors
+  "1D 1-Way": "connector-1d1w",
+  "1D 2-Way": "connector-1d2w",
   "2D 2-Way": "connector-2d2w",
+  "2D 3-Way": "connector-2d3w",
   "2D 4-Way": "connector-2d4w",
+  "3D 3-Way": "connector-3d3w",
   "3D 4-Way": "connector-3d4w",
+  "3D 5-Way": "connector-3d5w",
   "3D 6-Way": "connector-3d6w",
+  // Foot variants
+  "2D 2-Way Foot": "connector-2d2w-foot",
+  "3D 4-Way Foot": "connector-3d4w-foot",
+  "3D 6-Way Foot": "connector-3d6w-foot",
+  // Supports (spot check)
+  "Support (1u)": "support-1u",
   "Support (3u)": "support-3u",
-  "Support (5u)": "support-5u",
   "Support (10u)": "support-10u",
+  "Support (18u)": "support-18u",
+  // Lock pins
   "Lock Pin": "lockpin-standard",
+  "Lock Pin (No Grip)": "lockpin-no-grip",
 };
 
 for (const partName of partIds) {
