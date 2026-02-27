@@ -83,12 +83,13 @@ function rotateCellOnce(
 
 /**
  * Rotate a grid cell by a Rotation3 (degrees in 90° increments).
- * Applies X rotation first, then Y, then Z.
+ * Matches Three.js intrinsic Euler XYZ: apply Z first, then Y, then X
+ * (equivalent to matrix Rx * Ry * Rz * v).
  */
 function rotateCellByRotation3(cell: GridPosition, rotation: Rotation3): GridPosition {
   let result = cell;
-  // Apply each axis rotation in order: X, Y, Z
-  for (let axis = 0; axis < 3; axis++) {
+  // Apply in reverse order (Z, Y, X) to match Three.js Euler 'XYZ'
+  for (let axis = 2; axis >= 0; axis--) {
     const degrees = rotation[axis];
     const steps = (degrees / 90) % 4;
     for (let s = 0; s < steps; s++) {

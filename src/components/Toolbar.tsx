@@ -9,6 +9,8 @@ interface ToolbarProps {
   onLoad: () => void;
   onEscape: () => void;
   mode: InteractionMode;
+  customCollisionOff: boolean;
+  onToggleCustomCollision: () => void;
 }
 
 export function Toolbar({
@@ -20,6 +22,8 @@ export function Toolbar({
   onLoad,
   onEscape,
   mode,
+  customCollisionOff,
+  onToggleCustomCollision,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -61,6 +65,16 @@ export function Toolbar({
         </button>
         <button className="toolbar-btn" onClick={onLoad} title="Load assembly">
           Load
+        </button>
+      </div>
+
+      <div className="toolbar-group">
+        <button
+          className={`toolbar-btn${customCollisionOff ? " toolbar-btn-active" : ""}`}
+          onClick={onToggleCustomCollision}
+          title="Toggle collision detection for custom STL parts"
+        >
+          STL Collision: {customCollisionOff ? "Off" : "On"}
         </button>
       </div>
 

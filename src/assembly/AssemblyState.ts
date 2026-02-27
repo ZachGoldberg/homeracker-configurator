@@ -35,6 +35,7 @@ function generateId(): string {
 
 export interface AssemblySnapshot {
   parts: PlacedPart[];
+  customPartsSkipCollision: boolean;
 }
 
 /**
@@ -48,13 +49,36 @@ interface CellOccupant {
   axis: Axis | "full";
 }
 
+const SETTINGS_KEY = "homeracker-settings";
+
 export class AssemblyState {
   private parts: Map<string, PlacedPart> = new Map();
   /** Maps "x,y,z" grid key to the occupants at that cell */
   private gridOccupancy: Map<string, CellOccupant[]> = new Map();
   private listeners: Set<() => void> = new Set();
   /** Cached snapshot — only replaced on mutation so useSyncExternalStore stays stable */
-  private cachedSnapshot: AssemblySnapshot = { parts: [] };
+  private cachedSnapshot: AssemblySnapshot = { parts: [], customPartsSkipCollision: false };
+
+  /** When true, custom STL parts skip collision detection entirely */
+  customPartsSkipCollision: boolean = false;
+
+  constructor() {
+    try {
+      const saved = localStorage.getItem(SETTINGS_KEY);
+      if (saved) {
+        const settings = JSON.parse(saved);
+        this.customPartsSkipCollision = !!settings.customPartsSkipCollision;
+      }
+    } catch { /* ignore */ }
+  }
+
+  setCustomPartsSkipCollision(value: boolean) {
+    this.customPartsSkipCollision = value;
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ customPartsSkipCollision: value }));
+    } catch { /* ignore */ }
+    this.notify();
+  }
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -62,7 +86,10 @@ export class AssemblyState {
   }
 
   private notify() {
-    this.cachedSnapshot = { parts: Array.from(this.parts.values()) };
+    this.cachedSnapshot = {
+      parts: Array.from(this.parts.values()),
+      customPartsSkipCollision: this.customPartsSkipCollision,
+    };
     for (const listener of this.listeners) {
       listener();
     }
@@ -95,6 +122,11 @@ export class AssemblyState {
     if (!occupants || occupants.length === 0) return true;
     for (const occ of occupants) {
       if (ignoreInstanceId && occ.instanceId === ignoreInstanceId) continue;
+      // When custom collision is disabled, ignore custom part occupants
+      if (this.customPartsSkipCollision) {
+        const part = this.parts.get(occ.instanceId);
+        if (part && getPartDefinition(part.definitionId)?.category === "custom") continue;
+      }
       // "full" occupants block everything; new "full" occupant is blocked by anything
       if (occ.axis === "full" || axis === "full") return false;
       // Two supports on the same axis collide
@@ -149,6 +181,9 @@ export class AssemblyState {
     const def = getPartDefinition(definitionId);
     if (!def) return false;
 
+    // Custom parts skip all collision checks when the setting is enabled
+    if (this.customPartsSkipCollision && def.category === "custom") return true;
+
     // Connectors have physical arm geometry that extends into neighbor cells;
     // reject if any arm would poke below ground.
     if (def.category === "connector" && hasArmBelowGround(def, position, rotation, orientation)) return false;
@@ -172,6 +207,9 @@ export class AssemblyState {
   ): boolean {
     const def = getPartDefinition(definitionId);
     if (!def) return false;
+
+    // Custom parts skip all collision checks when the setting is enabled
+    if (this.customPartsSkipCollision && def.category === "custom") return true;
 
     if (def.category === "connector" && hasArmBelowGround(def, position, rotation, orientation)) return false;
 
@@ -284,7 +322,9 @@ export class AssemblyState {
       const def = getPartDefinition(part.definitionId);
       if (def?.category === "connector") {
         for (const cp of def.connectionPoints) {
-          const adjacentPos = getAdjacentPosition(part.position, cp.direction);
+          const orientedDir = transformDirection(cp.direction as any, part.orientation);
+          const rotatedDir = rotateDirection(orientedDir, part.rotation);
+          const adjacentPos = getAdjacentPosition(part.position, rotatedDir);
           const adjacent = this.getPartAt(adjacentPos);
           if (adjacent) {
             const adjacentDef = getPartDefinition(adjacent.definitionId);

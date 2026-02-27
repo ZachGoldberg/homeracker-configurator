@@ -463,12 +463,14 @@ function GhostPreview({
   ghostOrientation,
   ghostRotation,
   ghostStateRef,
+  yLift,
 }: {
   definitionId: string;
   assembly: AssemblyState;
   ghostOrientation: Axis;
   ghostRotation: Rotation3;
   ghostStateRef: React.MutableRefObject<GhostState>;
+  yLift: number;
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>([0, 0, 0]);
@@ -517,7 +519,7 @@ function GhostPreview({
       const snapRotation: Rotation3 = isSupport ? [0, 0, 0] : ghostRotation;
       // Auto-lift snapped position if rotation pushes geometry below ground
       const snapLift = def ? computeGroundLift(def, snapRotation, orient) : 0;
-      const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift), snap.position[2]];
+      const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift) + yLift, snap.position[2]];
       const canPlaceSnapped = assembly.canPlace(definitionId, liftedSnapPos, snapRotation, orient);
       setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
@@ -538,7 +540,7 @@ function GhostPreview({
     const orient = isSupport ? ghostOrientation : "y";
     // Auto-lift if rotation pushes geometry below ground
     const lift = def ? computeGroundLift(def, ghostRotation, orient) : 0;
-    cursorGrid[1] = lift;
+    cursorGrid[1] = lift + yLift;
     const canPlace = assembly.canPlace(definitionId, cursorGrid, ghostRotation, orient);
 
     setEffectiveOrientation(orient);
@@ -574,10 +576,12 @@ function DragPreview({
   dragState,
   assembly,
   dropTargetRef,
+  yLift,
 }: {
   dragState: DragState;
   assembly: AssemblyState;
   dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>;
+  yLift: number;
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>(dragState.originalPosition);
@@ -620,7 +624,7 @@ function DragPreview({
       const orient = isSupport ? snap.orientation : (dragState.orientation ?? "y");
       // Auto-lift snapped position if rotation pushes geometry below ground
       const snapLift = def ? computeGroundLift(def, dragState.rotation, orient) : 0;
-      const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift), snap.position[2]];
+      const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift) + yLift, snap.position[2]];
       const canPlace = assembly.canPlaceIgnoring(
         dragState.definitionId,
         liftedSnapPos,
@@ -640,7 +644,7 @@ function DragPreview({
     const orient = dragState.orientation ?? "y";
     // Auto-lift if rotation pushes geometry below ground
     const dragLift = def ? computeGroundLift(def, dragState.rotation, orient) : 0;
-    cursorGrid[1] = dragLift;
+    cursorGrid[1] = dragLift + yLift;
     const canPlace = assembly.canPlaceIgnoring(
       dragState.definitionId,
       cursorGrid,
@@ -741,6 +745,7 @@ interface SceneProps extends ViewportProps {
   dragState: DragState | null;
   dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>;
   onPartPointerDown: (instanceId: string, nativeEvent: PointerEvent) => void;
+  yLift: number;
 }
 
 /** Scene contents — lives inside the Canvas */
@@ -757,6 +762,7 @@ function Scene({
   dragState,
   dropTargetRef,
   onPartPointerDown,
+  yLift,
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
 
@@ -840,6 +846,7 @@ function Scene({
           ghostOrientation={ghostOrientation}
           ghostRotation={ghostRotation}
           ghostStateRef={ghostStateRef}
+          yLift={yLift}
         />
       )}
 
@@ -849,6 +856,7 @@ function Scene({
           dragState={dragState}
           assembly={assembly}
           dropTargetRef={dropTargetRef}
+          yLift={yLift}
         />
       )}
     </>
@@ -883,10 +891,14 @@ export function ViewportCanvas(props: ViewportProps) {
   const placingDef = placingId ? getPartDefinition(placingId) : null;
   const isPlacingSupport = placingDef?.category === "support";
 
-  // Reset rotation and orientation when switching parts
+  // Y-axis lift (W/S keys) — additive on top of auto ground lift
+  const [yLift, setYLift] = useState(0);
+
+  // Reset rotation, orientation, and lift when switching parts
   useEffect(() => {
     setGhostRotation([0, 0, 0]);
     setGhostOrientation("y");
+    setYLift(0);
   }, [placingId]);
 
   const rotateAxis = useCallback((axis: 0 | 1 | 2) => {
@@ -924,6 +936,7 @@ export function ViewportCanvas(props: ViewportProps) {
       if (Math.sqrt(dx * dx + dy * dy) >= DRAG_THRESHOLD) {
         const part = props.assembly.getPartById(pending.instanceId);
         if (part) {
+          setYLift(0);
           setDragState({
             instanceId: part.instanceId,
             definitionId: part.definitionId,
@@ -992,6 +1005,8 @@ export function ViewportCanvas(props: ViewportProps) {
             }
             break;
           }
+          case "w": setYLift((prev) => prev + 1); break;
+          case "s": setYLift((prev) => Math.max(0, prev - 1)); break;
         }
       } else if (props.mode.type === "place") {
         switch (e.key.toLowerCase()) {
@@ -1003,6 +1018,8 @@ export function ViewportCanvas(props: ViewportProps) {
               setGhostOrientation((prev) => nextOrientation(prev));
             }
             break;
+          case "w": setYLift((prev) => prev + 1); break;
+          case "s": setYLift((prev) => Math.max(0, prev - 1)); break;
         }
       }
     };
@@ -1015,12 +1032,12 @@ export function ViewportCanvas(props: ViewportProps) {
   if (dragState) {
     const dragDef = getPartDefinition(dragState.definitionId);
     hintText = dragDef?.category === "support"
-      ? "Drag to move · R rotate Y · F rotate Z · T rotate X · O cycle orientation · Release to place · Esc cancel"
-      : "Drag to move · R rotate Y · F rotate Z · T rotate X · Release to place · Esc cancel";
+      ? "R/F/T rotate · O orientation · W/S raise/lower · Release to place · Esc cancel"
+      : "R/F/T rotate · W/S raise/lower · Release to place · Esc cancel";
   } else if (props.mode.type === "place") {
     hintText = isPlacingSupport
-      ? "Click to place · R rotate Y · F rotate Z · T rotate X · O cycle orientation · Esc cancel"
-      : "Click to place · R rotate Y · F rotate Z · T rotate X · Esc cancel";
+      ? "Click to place · R/F/T rotate · O orientation · W/S raise/lower · Esc cancel"
+      : "Click to place · R/F/T rotate · W/S raise/lower · Esc cancel";
   }
 
   return (
@@ -1041,6 +1058,7 @@ export function ViewportCanvas(props: ViewportProps) {
           dragState={dragState}
           dropTargetRef={dropTargetRef}
           onPartPointerDown={handlePartPointerDown}
+          yLift={yLift}
         />
       </Canvas>
       {hintText && (

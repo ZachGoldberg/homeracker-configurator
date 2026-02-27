@@ -244,6 +244,10 @@ export function App() {
     input.click();
   }, []);
 
+  const handleToggleCustomCollision = useCallback(() => {
+    assembly.setCustomPartsSkipCollision(!assembly.customPartsSkipCollision);
+  }, []);
+
   const bom = assembly.getBOM();
 
   if (!ready) return null;
@@ -263,6 +267,8 @@ export function App() {
           onLoad={handleLoad}
           onEscape={handleEscape}
           mode={mode}
+          customCollisionOff={snapshot.customPartsSkipCollision}
+          onToggleCustomCollision={handleToggleCustomCollision}
         />
         <ViewportCanvas
           parts={snapshot.parts}
