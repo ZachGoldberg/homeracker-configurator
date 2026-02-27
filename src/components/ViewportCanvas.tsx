@@ -324,16 +324,19 @@ function GhostPreview({
       // Try to find a snap point near a connector socket
       const snap = findBestSnap(assembly, definitionId, cursorGrid, 3);
       if (snap) {
-        const rot = orientationToRotation(snap.orientation);
+        // Snap forces orientation (the axis the support extends along),
+        // but user rotation (R/T/F) still applies on top
+        const orient = snap.orientation;
+        const canPlaceSnapped = assembly.canPlace(definitionId, snap.position, ghostRotation, orient);
         setGridPos(snap.position);
-        setEffectiveOrientation(snap.orientation);
-        setValid(true); // snap candidates are pre-validated
+        setEffectiveOrientation(orient);
+        setValid(canPlaceSnapped);
         setIsSnapped(true);
         ghostStateRef.current = {
           position: snap.position,
-          orientation: snap.orientation,
-          valid: true,
-          rotation: rot,
+          orientation: orient,
+          valid: canPlaceSnapped,
+          rotation: ghostRotation,
           isSnapped: true,
         };
         return;
@@ -342,8 +345,7 @@ function GhostPreview({
 
     // No snap — use free placement with current orientation/rotation
     const orient = isSupport ? ghostOrientation : "y";
-    const rot = isSupport ? orientationToRotation(orient) : ghostRotation;
-    const canPlace = assembly.canPlace(definitionId, cursorGrid, rot, orient);
+    const canPlace = assembly.canPlace(definitionId, cursorGrid, ghostRotation, orient);
 
     setEffectiveOrientation(orient);
     setGridPos(cursorGrid);
@@ -353,7 +355,7 @@ function GhostPreview({
       position: cursorGrid,
       orientation: orient,
       valid: canPlace,
-      rotation: rot,
+      rotation: ghostRotation,
       isSnapped: false,
     };
   });
@@ -435,6 +437,9 @@ interface SceneProps extends ViewportProps {
   ghostRotation: Rotation3;
   ghostOrientation: Axis;
   ghostStateRef: React.MutableRefObject<GhostState>;
+  dragState: DragState | null;
+  dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean }>;
+  onPartPointerDown: (instanceId: string, nativeEvent: PointerEvent) => void;
 }
 
 /** Scene contents — lives inside the Canvas */
@@ -444,19 +449,21 @@ function Scene({
   selectedPartId,
   assembly,
   onPlacePart,
-  onClickPart,
   onClickEmpty,
   ghostRotation,
   ghostOrientation,
   ghostStateRef,
+  dragState,
+  dropTargetRef,
+  onPartPointerDown,
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
 
   const handleGroundClick = useCallback(
     (e: any) => {
+      if (dragState) return; // Don't handle ground clicks during drag
       if (mode.type === "place") {
         e.stopPropagation();
-        // Read the ghost state (written each frame by GhostPreview)
         const gs = ghostStateRef.current;
         if (gs.valid) {
           onPlacePart(mode.definitionId, gs.position, gs.rotation, gs.orientation);
@@ -465,7 +472,7 @@ function Scene({
         onClickEmpty();
       }
     },
-    [mode, onPlacePart, onClickEmpty, ghostStateRef]
+    [mode, onPlacePart, onClickEmpty, ghostStateRef, dragState]
   );
 
   return (
@@ -476,8 +483,8 @@ function Scene({
       <directionalLight position={[100, 200, 100]} intensity={0.8} castShadow />
       <directionalLight position={[-50, 100, -50]} intensity={0.3} />
 
-      {/* Camera controls */}
-      <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
+      {/* Camera controls — disabled during drag */}
+      <OrbitControls makeDefault enableDamping dampingFactor={0.1} enabled={!dragState} />
 
       {/* Grid floor */}
       <Grid
@@ -517,7 +524,8 @@ function Scene({
           key={part.instanceId}
           part={part}
           isSelected={part.instanceId === selectedPartId}
-          onClick={() => onClickPart(part.instanceId)}
+          isDragging={dragState?.instanceId === part.instanceId}
+          onPointerDown={(e) => onPartPointerDown(part.instanceId, e.nativeEvent)}
         />
       ))}
 
@@ -529,6 +537,15 @@ function Scene({
           ghostOrientation={ghostOrientation}
           ghostRotation={ghostRotation}
           ghostStateRef={ghostStateRef}
+        />
+      )}
+
+      {/* Drag preview */}
+      {dragState && (
+        <DragPreview
+          dragState={dragState}
+          assembly={assembly}
+          dropTargetRef={dropTargetRef}
         />
       )}
     </>
@@ -545,6 +562,18 @@ export function ViewportCanvas(props: ViewportProps) {
     rotation: [0, 0, 0],
     isSnapped: false,
   });
+
+  // Drag state
+  const [dragState, setDragState] = useState<DragState | null>(null);
+  const dropTargetRef = useRef<{ position: GridPosition; valid: boolean }>({
+    position: [0, 0, 0],
+    valid: false,
+  });
+  const pendingDragRef = useRef<{
+    instanceId: string;
+    startX: number;
+    startY: number;
+  } | null>(null);
 
   // Determine if we're placing a support (orientation cycling) vs connector (rotation)
   const placingId = props.mode.type === "place" ? props.mode.definitionId : null;
@@ -565,10 +594,77 @@ export function ViewportCanvas(props: ViewportProps) {
     });
   }, []);
 
+  // Handle pointer down on a part — records pending drag start
+  const handlePartPointerDown = useCallback(
+    (instanceId: string, nativeEvent: PointerEvent) => {
+      if (props.mode.type === "place") return;
+      pendingDragRef.current = {
+        instanceId,
+        startX: nativeEvent.clientX,
+        startY: nativeEvent.clientY,
+      };
+    },
+    [props.mode]
+  );
+
+  // Window-level pointer move/up for drag detection
+  useEffect(() => {
+    const DRAG_THRESHOLD = 5;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      const pending = pendingDragRef.current;
+      if (!pending) return;
+      if (dragState) return; // Already dragging
+
+      const dx = e.clientX - pending.startX;
+      const dy = e.clientY - pending.startY;
+      if (Math.sqrt(dx * dx + dy * dy) >= DRAG_THRESHOLD) {
+        const part = props.assembly.getPartById(pending.instanceId);
+        if (part) {
+          setDragState({
+            instanceId: part.instanceId,
+            definitionId: part.definitionId,
+            originalPosition: part.position,
+            rotation: part.rotation,
+            orientation: part.orientation,
+          });
+        }
+      }
+    };
+
+    const handlePointerUp = () => {
+      const pending = pendingDragRef.current;
+      if (!pending) return;
+
+      if (dragState) {
+        const target = dropTargetRef.current;
+        if (target.valid) {
+          props.onMovePart(dragState.instanceId, target.position);
+        }
+        setDragState(null);
+      } else {
+        props.onClickPart(pending.instanceId);
+      }
+      pendingDragRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [dragState, props.assembly, props.onMovePart, props.onClickPart]);
+
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (dragState) {
+          setDragState(null);
+          pendingDragRef.current = null;
+          return;
+        }
         props.onEscape();
       } else if (
         (e.key === "Delete" || e.key === "Backspace") &&
@@ -576,28 +672,31 @@ export function ViewportCanvas(props: ViewportProps) {
       ) {
         props.onDeletePart(props.selectedPartId);
       } else if (props.mode.type === "place") {
-        if (isPlacingSupport) {
-          // For supports: R cycles orientation (y → x → z → y)
-          if (e.key.toLowerCase() === "r") {
-            setGhostOrientation((prev) => nextOrientation(prev));
-          }
-        } else {
-          // For connectors: R/F/T rotate on Y/Z/X axes
-          switch (e.key.toLowerCase()) {
-            case "r": rotateAxis(1); break;
-            case "f": rotateAxis(2); break;
-            case "t": rotateAxis(0); break;
-          }
+        switch (e.key.toLowerCase()) {
+          case "r": rotateAxis(1); break;
+          case "f": rotateAxis(2); break;
+          case "t": rotateAxis(0); break;
+          case "o":
+            if (isPlacingSupport) {
+              setGhostOrientation((prev) => nextOrientation(prev));
+            }
+            break;
         }
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [props.onEscape, props.onDeletePart, props.selectedPartId, props.mode, isPlacingSupport, rotateAxis]);
+  }, [props.onEscape, props.onDeletePart, props.selectedPartId, props.mode, isPlacingSupport, rotateAxis, dragState]);
 
-  const hintText = isPlacingSupport
-    ? "Click to place · R cycle orientation · Esc cancel"
-    : "Click to place · R rotate Y · F rotate Z · T rotate X · Esc cancel";
+  // Hint text
+  let hintText: string | null = null;
+  if (dragState) {
+    hintText = "Drag to move · Release to place · Esc cancel";
+  } else if (props.mode.type === "place") {
+    hintText = isPlacingSupport
+      ? "Click to place · R rotate Y · F rotate Z · T rotate X · O cycle orientation · Esc cancel"
+      : "Click to place · R rotate Y · F rotate Z · T rotate X · Esc cancel";
+  }
 
   return (
     <div
@@ -613,9 +712,12 @@ export function ViewportCanvas(props: ViewportProps) {
           ghostRotation={ghostRotation}
           ghostOrientation={ghostOrientation}
           ghostStateRef={ghostStateRef}
+          dragState={dragState}
+          dropTargetRef={dropTargetRef}
+          onPartPointerDown={handlePartPointerDown}
         />
       </Canvas>
-      {props.mode.type === "place" && (
+      {hintText && (
         <div className="viewport-hint">
           {hintText}
         </div>

@@ -48,8 +48,8 @@ const server = Bun.serve({
     const url = new URL(req.url);
     let pathname = url.pathname;
 
-    // Try to serve from dist/ first (built JS)
-    if (pathname.startsWith("/src/")) {
+    // Try to serve compiled JS from dist/ (only for .ts/.tsx source files)
+    if (pathname.startsWith("/src/") && /\.(tsx?|jsx?)$/.test(pathname)) {
       const distPath = join(DIST_DIR, pathname.replace("/src/", "").replace(".tsx", ".js").replace(".ts", ".js"));
       const file = Bun.file(distPath);
       if (await file.exists()) {

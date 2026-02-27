@@ -43,7 +43,7 @@ const server = Bun.serve({
     const url = new URL(req.url);
     let pathname = url.pathname;
 
-    if (pathname.startsWith("/src/")) {
+    if (pathname.startsWith("/src/") && /\.(tsx?|jsx?)$/.test(pathname)) {
       const mapped = pathname.replace("/src/", "").replace(".tsx", ".js").replace(".ts", ".js");
       const file = Bun.file(join(DIST_DIR, mapped));
       if (await file.exists()) return new Response(file, { headers: { "Content-Type": "application/javascript" } });
