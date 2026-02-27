@@ -571,7 +571,7 @@ function DragPreview({
 }: {
   dragState: DragState;
   assembly: AssemblyState;
-  dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean }>;
+  dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>;
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>(dragState.originalPosition);
@@ -623,7 +623,7 @@ function DragPreview({
       setEffectiveOrientation(orient);
       setValid(canPlace);
       setIsSnapped(true);
-      dropTargetRef.current = { position: snap.position, valid: canPlace };
+      dropTargetRef.current = { position: snap.position, valid: canPlace, orientation: orient, rotation: dragState.rotation };
       return;
     }
 
@@ -640,7 +640,7 @@ function DragPreview({
     setEffectiveOrientation(orient);
     setValid(canPlace);
     setIsSnapped(false);
-    dropTargetRef.current = { position: cursorGrid, valid: canPlace };
+    dropTargetRef.current = { position: cursorGrid, valid: canPlace, orientation: orient, rotation: dragState.rotation };
   });
 
   if (!def) return null;
@@ -670,7 +670,7 @@ interface SceneProps extends ViewportProps {
   ghostOrientation: Axis;
   ghostStateRef: React.MutableRefObject<GhostState>;
   dragState: DragState | null;
-  dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean }>;
+  dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>;
   onPartPointerDown: (instanceId: string, nativeEvent: PointerEvent) => void;
 }
 
@@ -798,7 +798,7 @@ export function ViewportCanvas(props: ViewportProps) {
 
   // Drag state
   const [dragState, setDragState] = useState<DragState | null>(null);
-  const dropTargetRef = useRef<{ position: GridPosition; valid: boolean }>({
+  const dropTargetRef = useRef<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>({
     position: [0, 0, 0],
     valid: false,
   });
@@ -872,7 +872,7 @@ export function ViewportCanvas(props: ViewportProps) {
       if (dragState) {
         const target = dropTargetRef.current;
         if (target.valid) {
-          props.onMovePart(dragState.instanceId, target.position);
+          props.onMovePart(dragState.instanceId, target.position, target.rotation, target.orientation);
         }
         setDragState(null);
       } else {
@@ -904,6 +904,25 @@ export function ViewportCanvas(props: ViewportProps) {
         props.selectedPartId
       ) {
         props.onDeletePart(props.selectedPartId);
+      } else if (dragState) {
+        const rotateDrag = (axis: 0 | 1 | 2) => {
+          const next: Rotation3 = [...dragState.rotation];
+          next[axis] = nextStep(next[axis]);
+          setDragState({ ...dragState, rotation: next });
+        };
+        switch (e.key.toLowerCase()) {
+          case "r": rotateDrag(1); break;
+          case "f": rotateDrag(2); break;
+          case "t": rotateDrag(0); break;
+          case "o": {
+            const def = getPartDefinition(dragState.definitionId);
+            if (def?.category === "support") {
+              const newOrient = nextOrientation(dragState.orientation ?? "y");
+              setDragState({ ...dragState, orientation: newOrient });
+            }
+            break;
+          }
+        }
       } else if (props.mode.type === "place") {
         switch (e.key.toLowerCase()) {
           case "r": rotateAxis(1); break;
@@ -924,7 +943,10 @@ export function ViewportCanvas(props: ViewportProps) {
   // Hint text
   let hintText: string | null = null;
   if (dragState) {
-    hintText = "Drag to move · Release to place · Esc cancel";
+    const dragDef = getPartDefinition(dragState.definitionId);
+    hintText = dragDef?.category === "support"
+      ? "Drag to move · R rotate Y · F rotate Z · T rotate X · O cycle orientation · Release to place · Esc cancel"
+      : "Drag to move · R rotate Y · F rotate Z · T rotate X · Release to place · Esc cancel";
   } else if (props.mode.type === "place") {
     hintText = isPlacingSupport
       ? "Click to place · R rotate Y · F rotate Z · T rotate X · O cycle orientation · Esc cancel"
