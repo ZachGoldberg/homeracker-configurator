@@ -8,7 +8,7 @@ import { HistoryManager, type Command } from "../assembly/HistoryManager";
 import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3 } from "../types";
 import { getPartDefinition } from "../data/catalog";
 import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints } from "../assembly/snap";
-import { restoreCustomParts } from "../data/custom-parts";
+import { restoreCustomParts, importSTL } from "../data/custom-parts";
 
 // Global singleton instances
 const assembly = new AssemblyState();
@@ -41,6 +41,7 @@ assembly.subscribe(() => {
 // Expose for e2e testing
 (window as any).__assembly = assembly;
 (window as any).__snap = { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints };
+(window as any).__importSTL = importSTL;
 
 export function App() {
   const [ready, setReady] = useState(false);

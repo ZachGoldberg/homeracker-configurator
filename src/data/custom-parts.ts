@@ -69,6 +69,67 @@ export function isCustomPart(defId: string): boolean {
 let nextId = 1;
 
 /**
+ * Voxelize a geometry: find which grid cells actually contain mesh triangles.
+ * Only cells with geometry are returned, so hollow interiors remain free.
+ */
+function voxelizeGeometry(geometry: THREE.BufferGeometry): {
+  gridCells: GridPosition[];
+  cellsX: number;
+  cellsY: number;
+  cellsZ: number;
+} {
+  geometry.computeBoundingBox();
+  const bbox = geometry.boundingBox!;
+  const size = new THREE.Vector3();
+  bbox.getSize(size);
+
+  const cellsX = Math.max(1, Math.ceil(size.x / BASE_UNIT));
+  const cellsY = Math.max(1, Math.ceil(size.y / BASE_UNIT));
+  const cellsZ = Math.max(1, Math.ceil(size.z / BASE_UNIT));
+
+  const positions = geometry.getAttribute("position");
+  const index = geometry.getIndex();
+  const triCount = index ? index.count / 3 : positions.count / 3;
+
+  const occupiedCells = new Set<string>();
+
+  for (let t = 0; t < triCount; t++) {
+    const i0 = index ? index.getX(t * 3) : t * 3;
+    const i1 = index ? index.getX(t * 3 + 1) : t * 3 + 1;
+    const i2 = index ? index.getX(t * 3 + 2) : t * 3 + 2;
+
+    // Triangle vertex positions
+    const xs = [positions.getX(i0), positions.getX(i1), positions.getX(i2)];
+    const ys = [positions.getY(i0), positions.getY(i1), positions.getY(i2)];
+    const zs = [positions.getZ(i0), positions.getZ(i1), positions.getZ(i2)];
+
+    // Triangle AABB → grid cell range
+    const cMinX = Math.max(0, Math.floor((Math.min(...xs) - bbox.min.x) / BASE_UNIT));
+    const cMinY = Math.max(0, Math.floor((Math.min(...ys) - bbox.min.y) / BASE_UNIT));
+    const cMinZ = Math.max(0, Math.floor((Math.min(...zs) - bbox.min.z) / BASE_UNIT));
+    const cMaxX = Math.min(cellsX - 1, Math.floor((Math.max(...xs) - bbox.min.x) / BASE_UNIT));
+    const cMaxY = Math.min(cellsY - 1, Math.floor((Math.max(...ys) - bbox.min.y) / BASE_UNIT));
+    const cMaxZ = Math.min(cellsZ - 1, Math.floor((Math.max(...zs) - bbox.min.z) / BASE_UNIT));
+
+    for (let cx = cMinX; cx <= cMaxX; cx++) {
+      for (let cy = cMinY; cy <= cMaxY; cy++) {
+        for (let cz = cMinZ; cz <= cMaxZ; cz++) {
+          occupiedCells.add(`${cx},${cy},${cz}`);
+        }
+      }
+    }
+  }
+
+  const gridCells: GridPosition[] = [];
+  for (const key of occupiedCells) {
+    const [x, y, z] = key.split(",").map(Number);
+    gridCells.push([x, y, z] as GridPosition);
+  }
+
+  return { gridCells, cellsX, cellsY, cellsZ };
+}
+
+/**
  * Import an STL file and register it as a custom catalog part.
  * Returns the new PartDefinition.
  */
@@ -79,25 +140,9 @@ export function importSTL(file: File): Promise<PartDefinition> {
       try {
         const buffer = reader.result as ArrayBuffer;
         const geometry = stlLoader.parse(buffer);
-        geometry.computeBoundingBox();
 
-        const bbox = geometry.boundingBox!;
-        const size = new THREE.Vector3();
-        bbox.getSize(size);
-
-        // Compute grid cells from bounding box (assuming STL units = mm)
-        const cellsX = Math.max(1, Math.ceil(size.x / BASE_UNIT));
-        const cellsY = Math.max(1, Math.ceil(size.y / BASE_UNIT));
-        const cellsZ = Math.max(1, Math.ceil(size.z / BASE_UNIT));
-
-        const gridCells: GridPosition[] = [];
-        for (let x = 0; x < cellsX; x++) {
-          for (let y = 0; y < cellsY; y++) {
-            for (let z = 0; z < cellsZ; z++) {
-              gridCells.push([x, y, z]);
-            }
-          }
-        }
+        // Voxelize: only include cells with actual geometry
+        const { gridCells, cellsX, cellsY, cellsZ } = voxelizeGeometry(geometry);
 
         // Center geometry at origin for consistent rendering
         geometry.center();
@@ -154,16 +199,20 @@ export async function restoreCustomParts(): Promise<void> {
 
     try {
       const geometry = stlLoader.parse(buffer);
+
+      // Re-voxelize from actual geometry (fixes stale bounding-box cells from old saves)
+      const { gridCells } = voxelizeGeometry(geometry);
+
       geometry.center();
 
       const def: PartDefinition = {
         id: entry.id,
         category: "custom",
         name: entry.name,
-        description: `Imported STL (${entry.gridCells.length} cells)`,
+        description: `Imported STL (${gridCells.length} cells)`,
         modelPath: "",
         connectionPoints: [],
-        gridCells: entry.gridCells,
+        gridCells,
       };
 
       geometryStore.set(entry.id, geometry);
