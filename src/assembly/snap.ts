@@ -107,11 +107,11 @@ export function findSnapPoints(
       // The cell adjacent to the connector in this socket's direction
       const adjacentCell = getAdjacentPosition(socketWorldPos, rotatedDir);
 
-      // Skip if this socket is already occupied (not open)
-      if (assembly.isOccupied(adjacentCell)) continue;
-
       // Determine the axis the support needs to span
       const orientation = directionToAxis(rotatedDir);
+
+      // Skip if this socket is already occupied (not open for this support axis)
+      if (!assembly.isCellFreeForSupportAxis(adjacentCell, orientation)) continue;
 
       // Compute the support origin position.
       let originPos: GridPosition;
@@ -133,7 +133,7 @@ export function findSnapPoints(
       const worldCells = getWorldCells(supportDef.gridCells, originPos, orientation);
       const allFree = worldCells.every((cell) => {
         if (cell[1] < 0) return false;
-        return !assembly.isOccupied(cell);
+        return assembly.isCellFreeForSupportAxis(cell, orientation);
       });
 
       if (!allFree) continue;

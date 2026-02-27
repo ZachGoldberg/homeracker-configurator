@@ -10,9 +10,9 @@ test.describe("Snap point discovery", () => {
       const a = (window as any).__assembly;
       const snap = (window as any).__snap;
       a.clear();
-      a.addPart("connector-3d6w", [5, 0, 5]);
+      a.addPart("connector-3d6w", [5, 1, 5]);
 
-      const points = snap.findSnapPoints(a, "support-3u", [5, 0, 5], 5);
+      const points = snap.findSnapPoints(a, "support-3u", [5, 1, 5], 5);
       const orientations = points.map((p: any) => p.orientation);
       const directions = points.map((p: any) => p.socketDirection);
 
@@ -42,9 +42,9 @@ test.describe("Snap point discovery", () => {
       const a = (window as any).__assembly;
       const snap = (window as any).__snap;
       a.clear();
-      a.addPart("connector-3d6w", [5, 0, 5]);
+      a.addPart("connector-3d6w", [5, 1, 5]);
 
-      const best = snap.findBestSnap(a, "support-3u", [6, 0, 5], 3);
+      const best = snap.findBestSnap(a, "support-3u", [6, 1, 5], 3);
       return best
         ? {
             position: best.position,
@@ -64,10 +64,10 @@ test.describe("Snap point discovery", () => {
       const snap = (window as any).__snap;
       a.clear();
 
-      a.addPart("connector-3d6w", [5, 0, 5]);
-      a.addPart("support-3u", [6, 0, 5], [0, 0, 0], "x");
+      a.addPart("connector-3d6w", [5, 1, 5]);
+      a.addPart("support-3u", [6, 1, 5], [0, 0, 0], "x");
 
-      const points = snap.findSnapPoints(a, "support-3u", [6, 0, 5], 5);
+      const points = snap.findSnapPoints(a, "support-3u", [6, 1, 5], 5);
       const hasXSnap = points.some((p: any) => p.socketDirection === "+x");
 
       return { hasXSnap, count: points.length };
@@ -309,25 +309,25 @@ test.describe("canPlaceIgnoring (drag-to-move)", () => {
       const a = (window as any).__assembly;
       a.clear();
 
-      const id1 = a.addPart("connector-3d6w", [0, 0, 0]);
-      const id2 = a.addPart("connector-3d6w", [2, 0, 0]);
+      const id1 = a.addPart("connector-3d6w", [0, 1, 0]);
+      const id2 = a.addPart("connector-3d6w", [2, 1, 0]);
 
       return {
         canIgnoreSelf: a.canPlaceIgnoring(
           "connector-3d6w",
-          [0, 0, 0],
+          [0, 1, 0],
           [0, 0, 0],
           id1
         ),
         blockedByOther: a.canPlaceIgnoring(
           "connector-3d6w",
-          [2, 0, 0],
+          [2, 1, 0],
           [0, 0, 0],
           id1
         ),
         freeCell: a.canPlaceIgnoring(
           "connector-3d6w",
-          [1, 0, 0],
+          [1, 1, 0],
           [0, 0, 0],
           id1
         ),
@@ -348,7 +348,7 @@ test.describe("Move part (programmatic)", () => {
       const a = (window as any).__assembly;
       a.clear();
 
-      const id = a.addPart("connector-3d6w", [0, 0, 0]);
+      const id = a.addPart("connector-3d6w", [0, 1, 0]);
       if (!id) return { success: false, reason: "failed to place" };
 
       const part = a.getPartById(id);
@@ -357,15 +357,15 @@ test.describe("Move part (programmatic)", () => {
       a.removePart(id);
       const newId = a.addPart(
         part.definitionId,
-        [3, 0, 3],
+        [3, 1, 3],
         part.rotation,
         part.orientation
       );
 
       return {
         success: newId !== null,
-        oldFree: !a.isOccupied([0, 0, 0]),
-        newOccupied: a.isOccupied([3, 0, 3]),
+        oldFree: !a.isOccupied([0, 1, 0]),
+        newOccupied: a.isOccupied([3, 1, 3]),
       };
     });
 

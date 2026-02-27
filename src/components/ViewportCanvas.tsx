@@ -16,23 +16,24 @@ interface ViewportProps {
   selectedPartId: string | null;
   assembly: AssemblyState;
   onPlacePart: (definitionId: string, position: GridPosition, rotation: PlacedPart["rotation"], orientation?: Axis) => void;
-  onMovePart: (instanceId: string, newPosition: GridPosition) => void;
+  onMovePart: (instanceId: string, newPosition: GridPosition, rotation?: Rotation3, orientation?: Axis) => void;
   onClickPart: (instanceId: string) => void;
   onClickEmpty: () => void;
   onDeletePart: (instanceId: string) => void;
   onEscape: () => void;
 }
 
-/** Convert grid coordinates to world position (mm) */
+/** Convert grid coordinates to world position (mm).
+ *  Y is offset by half a cell so that grid Y=0 sits ON the ground (bottom at world Y=0). */
 function gridToWorld(pos: GridPosition): [number, number, number] {
-  return [pos[0] * BASE_UNIT, pos[1] * BASE_UNIT, pos[2] * BASE_UNIT];
+  return [pos[0] * BASE_UNIT, pos[1] * BASE_UNIT + BASE_UNIT / 2, pos[2] * BASE_UNIT];
 }
 
-/** Snap a world position to the nearest grid point */
+/** Snap a world position to the nearest grid point (inverse of gridToWorld) */
 function snapToGrid(worldPos: THREE.Vector3): GridPosition {
   return [
     Math.round(worldPos.x / BASE_UNIT),
-    Math.round(worldPos.y / BASE_UNIT),
+    Math.round((worldPos.y - BASE_UNIT / 2) / BASE_UNIT),
     Math.round(worldPos.z / BASE_UNIT),
   ];
 }
@@ -69,23 +70,25 @@ function PartMesh({
   part,
   isSelected,
   isDragging,
+  isPlacing,
   onPointerDown,
 }: {
   part: PlacedPart;
   isSelected: boolean;
   isDragging: boolean;
+  isPlacing: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId);
   if (!def) return null;
 
   if (isCustomPart(part.definitionId)) {
-    return <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} onPointerDown={onPointerDown} />;
+    return <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} onPointerDown={onPointerDown} />;
   }
 
   return (
-    <Suspense fallback={<PartMeshFallback part={part} isSelected={isSelected} onClick={() => {}} />}>
-      <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} onPointerDown={onPointerDown} />
+    <Suspense fallback={<PartMeshFallback part={part} isSelected={isSelected} onClick={() => { }} />}>
+      <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} onPointerDown={onPointerDown} />
     </Suspense>
   );
 }
@@ -95,11 +98,13 @@ function CustomPartMesh({
   part,
   isSelected,
   isDragging,
+  isPlacing,
   onPointerDown,
 }: {
   part: PlacedPart;
   isSelected: boolean;
   isDragging: boolean;
+  isPlacing: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId)!;
@@ -119,15 +124,15 @@ function CustomPartMesh({
       name={`placed-${part.instanceId}`}
       position={worldPos}
       onPointerDown={(e) => {
-        e.stopPropagation();
+        if (!isPlacing) e.stopPropagation();
         onPointerDown(e);
       }}
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => { if (!isPlacing) e.stopPropagation(); }}
     >
       <group position={offset}>
         <group rotation={partEuler}>
           <mesh geometry={geometry}>
-            <meshStandardMaterial color={color} transparent={isDragging} opacity={opacity} />
+            <meshStandardMaterial color={color} roughness={1} metalness={0} transparent={isDragging} opacity={opacity} />
           </mesh>
         </group>
       </group>
@@ -146,11 +151,13 @@ function PartMeshLoaded({
   part,
   isSelected,
   isDragging,
+  isPlacing,
   onPointerDown,
 }: {
   part: PlacedPart;
   isSelected: boolean;
   isDragging: boolean;
+  isPlacing: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId)!;
@@ -190,10 +197,10 @@ function PartMeshLoaded({
       name={`placed-${part.instanceId}`}
       position={worldPos}
       onPointerDown={(e) => {
-        e.stopPropagation();
+        if (!isPlacing) e.stopPropagation();
         onPointerDown(e);
       }}
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => { if (!isPlacing) e.stopPropagation(); }}
     >
       <group position={offset}>
         <group rotation={partEuler}>
@@ -242,6 +249,8 @@ function PartMeshFallback({
   const orient = part.orientation ?? "y";
   const orientedCells = def.gridCells.map((c) => transformCell(c, orient));
   const cells = rotateGridCells(orientedCells, part.rotation);
+  const offset = modelCenterOffset({ gridCells: cells });
+
   const minX = Math.min(...cells.map((c) => c[0]));
   const minY = Math.min(...cells.map((c) => c[1]));
   const minZ = Math.min(...cells.map((c) => c[2]));
@@ -253,17 +262,11 @@ function PartMeshFallback({
   const sizeY = (maxY - minY + 1) * BASE_UNIT;
   const sizeZ = (maxZ - minZ + 1) * BASE_UNIT;
 
-  const centerOffset: [number, number, number] = [
-    ((minX + maxX + 1) / 2) * BASE_UNIT,
-    ((minY + maxY + 1) / 2) * BASE_UNIT,
-    ((minZ + maxZ + 1) / 2) * BASE_UNIT,
-  ];
-
   // Box dimensions already reflect orientation + rotation — no rotation group needed
   return (
     <group position={worldPos}>
       <mesh
-        position={centerOffset}
+        position={offset}
         onClick={(e) => {
           e.stopPropagation();
           onClick();
@@ -417,6 +420,8 @@ function GhostFallback({ definitionId, valid, orientation }: { definitionId: str
 
   const orient = orientation ?? "y";
   const cells = def.gridCells.map((c) => transformCell(c, orient));
+  const offset = modelCenterOffset({ gridCells: cells });
+
   const minX = Math.min(...cells.map((c) => c[0]));
   const minY = Math.min(...cells.map((c) => c[1]));
   const minZ = Math.min(...cells.map((c) => c[2]));
@@ -428,15 +433,9 @@ function GhostFallback({ definitionId, valid, orientation }: { definitionId: str
   const sizeY = (maxY - minY + 1) * BASE_UNIT;
   const sizeZ = (maxZ - minZ + 1) * BASE_UNIT;
 
-  const centerOffset: [number, number, number] = [
-    ((minX + maxX + 1) / 2) * BASE_UNIT,
-    ((minY + maxY + 1) / 2) * BASE_UNIT,
-    ((minZ + maxZ + 1) / 2) * BASE_UNIT,
-  ];
-
   // No rotation needed — box dimensions already reflect oriented space
   return (
-    <mesh position={centerOffset}>
+    <mesh position={offset}>
       <boxGeometry args={[sizeX * 0.95, sizeY * 0.95, sizeZ * 0.95]} />
       <meshStandardMaterial
         color={valid ? PART_COLORS.ghost_valid : PART_COLORS.ghost_invalid}
@@ -712,7 +711,7 @@ function Scene({
     <>
       <ExposeScene />
       {/* Lighting */}
-      <ambientLight intensity={1.5} />
+      <ambientLight intensity={2.5} />
       <directionalLight position={[100, 200, 100]} intensity={1.5} castShadow />
       <directionalLight position={[-50, 100, -50]} intensity={0.8} />
 
@@ -758,6 +757,7 @@ function Scene({
           part={part}
           isSelected={part.instanceId === selectedPartId}
           isDragging={dragState?.instanceId === part.instanceId}
+          isPlacing={mode.type === "place"}
           onPointerDown={(e) => onPartPointerDown(part.instanceId, e.nativeEvent)}
         />
       ))}

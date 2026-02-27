@@ -99,6 +99,8 @@ export async function getBBox(page: Page, objectName: string) {
       sizeX: Math.round((box.max[0] - box.min[0]) * 100) / 100,
       sizeY: Math.round((box.max[1] - box.min[1]) * 100) / 100,
       sizeZ: Math.round((box.max[2] - box.min[2]) * 100) / 100,
+      minY: Math.round(box.min[1] * 100) / 100,
+      maxY: Math.round(box.max[1] * 100) / 100,
     };
   }, objectName);
 }

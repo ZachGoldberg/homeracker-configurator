@@ -2,6 +2,13 @@ import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import type { PartDefinition, GridPosition } from "../types";
 import { BASE_UNIT } from "../constants";
+import {
+  saveSTLBuffer,
+  saveCustomPartsMeta,
+  loadCustomPartsMeta,
+  loadAllSTLBuffers,
+  type CustomPartMeta,
+} from "./custom-parts-storage";
 
 const stlLoader = new STLLoader();
 
@@ -18,6 +25,16 @@ let snapshot = { definitions: [] as PartDefinition[] };
 function notify() {
   snapshot = { definitions: [...customDefinitions] };
   listeners.forEach((cb) => cb());
+}
+
+/** Persist current custom parts metadata to localStorage */
+function persistMeta() {
+  const meta: CustomPartMeta[] = customDefinitions.map((d) => ({
+    id: d.id,
+    name: d.name,
+    gridCells: d.gridCells,
+  }));
+  saveCustomPartsMeta(meta);
 }
 
 export function subscribeCustomParts(cb: () => void): () => void {
@@ -58,9 +75,10 @@ let nextId = 1;
 export function importSTL(file: File): Promise<PartDefinition> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
-        const geometry = stlLoader.parse(reader.result as ArrayBuffer);
+        const buffer = reader.result as ArrayBuffer;
+        const geometry = stlLoader.parse(buffer);
         geometry.computeBoundingBox();
 
         const bbox = geometry.boundingBox!;
@@ -101,6 +119,10 @@ export function importSTL(file: File): Promise<PartDefinition> {
         customDefinitions.push(def);
         notify();
 
+        // Persist to IndexedDB + localStorage
+        await saveSTLBuffer(id, buffer);
+        persistMeta();
+
         resolve(def);
       } catch (err) {
         reject(new Error(`Failed to parse STL: ${err}`));
@@ -109,4 +131,56 @@ export function importSTL(file: File): Promise<PartDefinition> {
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsArrayBuffer(file);
   });
+}
+
+/**
+ * Restore custom parts from IndexedDB + localStorage.
+ * Must be called before assembly.deserialize() so custom part IDs resolve.
+ */
+export async function restoreCustomParts(): Promise<void> {
+  const meta = loadCustomPartsMeta();
+  if (meta.length === 0) return;
+
+  let buffers: Map<string, ArrayBuffer>;
+  try {
+    buffers = await loadAllSTLBuffers();
+  } catch {
+    return; // IndexedDB unavailable
+  }
+
+  for (const entry of meta) {
+    const buffer = buffers.get(entry.id);
+    if (!buffer) continue; // Binary lost — skip this part
+
+    try {
+      const geometry = stlLoader.parse(buffer);
+      geometry.center();
+
+      const def: PartDefinition = {
+        id: entry.id,
+        category: "custom",
+        name: entry.name,
+        description: `Imported STL (${entry.gridCells.length} cells)`,
+        modelPath: "",
+        connectionPoints: [],
+        gridCells: entry.gridCells,
+      };
+
+      geometryStore.set(entry.id, geometry);
+      customDefinitions.push(def);
+    } catch {
+      // Skip corrupt entries
+    }
+  }
+
+  // Set nextId past any restored IDs to avoid collisions
+  for (const entry of meta) {
+    const match = entry.id.match(/^custom-stl-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num >= nextId) nextId = num + 1;
+    }
+  }
+
+  notify();
 }

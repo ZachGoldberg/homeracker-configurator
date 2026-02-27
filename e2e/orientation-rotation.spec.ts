@@ -13,15 +13,15 @@ test.describe("Orientation-aware grid occupancy", () => {
     );
     expect(orientedId).not.toBeNull();
 
-    // Cell [1,0,0] should be occupied
+    // Cell [1,0,0] should be occupied — use a connector without -Y arm at Y=0
     const collisionAtX1 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-3d6w", [1, 0, 0])
+      (window as any).__assembly.addPart("connector-2d2w", [1, 0, 0])
     );
     expect(collisionAtX1).toBeNull();
 
     // Cell [2,0,0] should also be occupied
     const collisionAtX2 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-3d6w", [2, 0, 0])
+      (window as any).__assembly.addPart("connector-2d2w", [2, 0, 0])
     );
     expect(collisionAtX2).toBeNull();
 
@@ -33,7 +33,7 @@ test.describe("Orientation-aware grid occupancy", () => {
 
     // Cell [0,0,1] should also be free
     const freeAtZ1 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-3d6w", [0, 0, 1])
+      (window as any).__assembly.addPart("connector-2d2w", [0, 0, 1])
     );
     expect(freeAtZ1).not.toBeNull();
   });
@@ -47,7 +47,7 @@ test.describe("Orientation-aware grid occupancy", () => {
     expect(orientedZ).not.toBeNull();
 
     const collisionAtZ1 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-3d6w", [0, 0, 1])
+      (window as any).__assembly.addPart("connector-2d2w", [0, 0, 1])
     );
     expect(collisionAtZ1).toBeNull();
 
@@ -65,12 +65,12 @@ test.describe("canPlace with orientation", () => {
     const results = await page.evaluate(() => {
       const a = (window as any).__assembly;
       a.clear();
-      a.addPart("connector-3d6w", [3, 0, 0]);
+      a.addPart("connector-3d6w", [3, 1, 0]);
 
       return {
         canPlaceY: a.canPlace("support-3u", [0, 0, 0], [0, 0, 0], "y"),
         canPlaceX: a.canPlace("support-3u", [0, 0, 0], [0, 0, 0], "x"),
-        cannotPlaceXBlocked: a.canPlace("support-3u", [1, 0, 0], [0, 0, 0], "x"),
+        cannotPlaceXBlocked: a.canPlace("support-3u", [1, 1, 0], [0, 0, 0], "x"),
       };
     });
 
@@ -97,7 +97,8 @@ test.describe("Rotation-aware grid collision", () => {
       const occupiedZ1 = a.isOccupied([0, 0, 1]);
       const occupiedZ2 = a.isOccupied([0, 0, 2]);
 
-      const collidesZ1 = a.addPart("connector-3d6w", [0, 0, 1]);
+      // Use connector-2d2w (no -Y arm) for collision checks at Y=0
+      const collidesZ1 = a.addPart("connector-2d2w", [0, 0, 1]);
       const freeY1 = a.addPart("connector-3d6w", [0, 1, 0]);
 
       return {

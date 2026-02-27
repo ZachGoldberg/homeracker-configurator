@@ -8,19 +8,26 @@ import { HistoryManager, type Command } from "../assembly/HistoryManager";
 import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3 } from "../types";
 import { getPartDefinition } from "../data/catalog";
 import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints } from "../assembly/snap";
+import { restoreCustomParts } from "../data/custom-parts";
 
 // Global singleton instances
 const assembly = new AssemblyState();
 const history = new HistoryManager();
 
-// Restore scene from localStorage on startup
 const STORAGE_KEY = "homeracker-scene";
-try {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) assembly.deserialize(JSON.parse(saved));
-} catch {
-  // Ignore corrupt/missing data
-}
+
+// Restore custom parts (IndexedDB) THEN assembly (localStorage).
+// Custom part definitions must exist before deserialize() resolves their IDs.
+const initPromise = restoreCustomParts()
+  .catch(() => {}) // IndexedDB may be unavailable
+  .then(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) assembly.deserialize(JSON.parse(saved));
+    } catch {
+      // Ignore corrupt/missing data
+    }
+  });
 
 // Auto-persist scene to localStorage on every change
 assembly.subscribe(() => {
@@ -36,8 +43,14 @@ assembly.subscribe(() => {
 (window as any).__snap = { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints };
 
 export function App() {
+  const [ready, setReady] = useState(false);
   const [mode, setMode] = useState<InteractionMode>({ type: "select" });
   const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+
+  // Wait for custom parts + assembly restore before rendering
+  useEffect(() => {
+    initPromise.then(() => setReady(true));
+  }, []);
 
   // Subscribe to assembly changes for re-renders
   const snapshot = useSyncExternalStore(
@@ -101,18 +114,26 @@ export function App() {
   );
 
   const handleMovePart = useCallback(
-    (instanceId: string, newPosition: GridPosition) => {
+    (instanceId: string, newPosition: GridPosition, newRotation?: PlacedPart["rotation"], newOrientation?: Axis) => {
       const part = assembly.getPartById(instanceId);
       if (!part) return;
-      if (
+
+      const rotation = newRotation ?? part.rotation;
+      const orientation = newOrientation ?? part.orientation;
+      const samePosition =
         part.position[0] === newPosition[0] &&
         part.position[1] === newPosition[1] &&
-        part.position[2] === newPosition[2]
-      ) return; // No-op if same position
+        part.position[2] === newPosition[2];
+      const sameRotation =
+        part.rotation[0] === rotation[0] &&
+        part.rotation[1] === rotation[1] &&
+        part.rotation[2] === rotation[2];
+      const sameOrientation = part.orientation === orientation;
+      if (samePosition && sameRotation && sameOrientation) return; // No-op
 
       const oldPosition = part.position;
-      const rotation = part.rotation;
-      const orientation = part.orientation;
+      const oldRotation = part.rotation;
+      const oldOrientation = part.orientation;
       const definitionId = part.definitionId;
 
       const cmd: Command = {
@@ -133,7 +154,7 @@ export function App() {
           );
           if (match) {
             assembly.removePart(match.instanceId);
-            assembly.addPart(definitionId, oldPosition, rotation, orientation);
+            assembly.addPart(definitionId, oldPosition, oldRotation, oldOrientation);
           }
         },
       };
@@ -221,6 +242,8 @@ export function App() {
   }, []);
 
   const bom = assembly.getBOM();
+
+  if (!ready) return null;
 
   return (
     <div className="app">
