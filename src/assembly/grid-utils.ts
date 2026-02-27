@@ -196,3 +196,34 @@ export function nextOrientation(current: Axis): Axis {
   const cycle: Axis[] = ["y", "x", "z"];
   return cycle[(cycle.indexOf(current) + 1) % 3];
 }
+
+/**
+ * Compute the minimum Y-offset needed to keep all part geometry at Y >= 0.
+ * Accounts for grid cells (after rotation + orientation) and, for connectors,
+ * the arm directions that extend into adjacent cells.
+ */
+export function computeGroundLift(
+  def: {
+    gridCells: GridPosition[];
+    connectionPoints: { offset: GridPosition; direction: string }[];
+    category: string;
+  },
+  rotation: Rotation3,
+  orientation: Axis = "y",
+): number {
+  const rotated = rotateGridCells(def.gridCells, rotation);
+  const oriented = rotated.map((c) => transformCell(c, orientation));
+  let minY = Math.min(...oriented.map((c) => c[1]));
+
+  // For connectors, also check arm adjacent positions
+  if (def.category === "connector") {
+    for (const cp of def.connectionPoints) {
+      const orientedDir = transformDirection(cp.direction as Direction, orientation);
+      const rotatedDir = rotateDirection(orientedDir, rotation);
+      const armTarget = getAdjacentPosition([0, 0, 0], rotatedDir);
+      minY = Math.min(minY, armTarget[1]);
+    }
+  }
+
+  return Math.max(0, -minY);
+}

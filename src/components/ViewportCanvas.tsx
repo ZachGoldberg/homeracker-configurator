@@ -7,7 +7,7 @@ import type { PlacedPart, InteractionMode, GridPosition, Rotation3, RotationStep
 import { getPartDefinition } from "../data/catalog";
 import { isCustomPart, getCustomPartGeometry } from "../data/custom-parts";
 import { AssemblyState } from "../assembly/AssemblyState";
-import { nextOrientation, orientationToRotation, transformCell, rotateGridCells } from "../assembly/grid-utils";
+import { nextOrientation, orientationToRotation, transformCell, rotateGridCells, computeGroundLift } from "../assembly/grid-utils";
 import { findBestSnap, findBestConnectorSnap, type GridRay } from "../assembly/snap";
 
 interface ViewportProps {
@@ -515,14 +515,17 @@ function GhostPreview({
       // When snapping a support, the snap engine provides position + orientation.
       // User rotation (R/T/F) would conflict, so override to identity for supports.
       const snapRotation: Rotation3 = isSupport ? [0, 0, 0] : ghostRotation;
-      const canPlaceSnapped = assembly.canPlace(definitionId, snap.position, snapRotation, orient);
-      setGridPos(snap.position);
+      // Auto-lift snapped position if rotation pushes geometry below ground
+      const snapLift = def ? computeGroundLift(def, snapRotation, orient) : 0;
+      const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift), snap.position[2]];
+      const canPlaceSnapped = assembly.canPlace(definitionId, liftedSnapPos, snapRotation, orient);
+      setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
       setEffectiveRotation(snapRotation);
       setValid(canPlaceSnapped);
       setIsSnapped(true);
       ghostStateRef.current = {
-        position: snap.position,
+        position: liftedSnapPos,
         orientation: orient,
         valid: canPlaceSnapped,
         rotation: snapRotation,
@@ -533,6 +536,9 @@ function GhostPreview({
 
     // No snap — use free placement with current orientation/rotation
     const orient = isSupport ? ghostOrientation : "y";
+    // Auto-lift if rotation pushes geometry below ground
+    const lift = def ? computeGroundLift(def, ghostRotation, orient) : 0;
+    cursorGrid[1] = lift;
     const canPlace = assembly.canPlace(definitionId, cursorGrid, ghostRotation, orient);
 
     setEffectiveOrientation(orient);
@@ -612,23 +618,29 @@ function DragPreview({
 
     if (snap) {
       const orient = isSupport ? snap.orientation : (dragState.orientation ?? "y");
+      // Auto-lift snapped position if rotation pushes geometry below ground
+      const snapLift = def ? computeGroundLift(def, dragState.rotation, orient) : 0;
+      const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift), snap.position[2]];
       const canPlace = assembly.canPlaceIgnoring(
         dragState.definitionId,
-        snap.position,
+        liftedSnapPos,
         dragState.rotation,
         dragState.instanceId,
         orient,
       );
-      setGridPos(snap.position);
+      setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
       setValid(canPlace);
       setIsSnapped(true);
-      dropTargetRef.current = { position: snap.position, valid: canPlace, orientation: orient, rotation: dragState.rotation };
+      dropTargetRef.current = { position: liftedSnapPos, valid: canPlace, orientation: orient, rotation: dragState.rotation };
       return;
     }
 
     // No snap — free placement on ground plane
     const orient = dragState.orientation ?? "y";
+    // Auto-lift if rotation pushes geometry below ground
+    const dragLift = def ? computeGroundLift(def, dragState.rotation, orient) : 0;
+    cursorGrid[1] = dragLift;
     const canPlace = assembly.canPlaceIgnoring(
       dragState.definitionId,
       cursorGrid,
