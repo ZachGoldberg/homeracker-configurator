@@ -92,19 +92,27 @@ await page.evaluate(() => {
   asm.addPart("support-5u", [0, 1, 5], [0, 0, 0], "y");
   asm.addPart("support-5u", [5, 1, 5], [0, 0, 0], "y");
 
-  // Horizontal supports along X axis (front and back)
-  asm.addPart("support-5u", [1, 0, 0], [0, 0, 0], "x");
-  asm.addPart("support-5u", [1, 0, 5], [0, 0, 0], "x");
+  // Bottom horizontal supports along X axis (front and back)
+  asm.addPart("support-4u", [1, 0, 0], [0, 0, 0], "x");
+  asm.addPart("support-4u", [1, 0, 5], [0, 0, 0], "x");
 
-  // Horizontal supports along Z axis (left and right)
-  asm.addPart("support-5u", [0, 0, 1], [0, 0, 0], "z");
-  asm.addPart("support-5u", [5, 0, 1], [0, 0, 0], "z");
+  // Bottom horizontal supports along Z axis (left and right)
+  asm.addPart("support-4u", [0, 0, 1], [0, 0, 0], "z");
+  asm.addPart("support-4u", [5, 0, 1], [0, 0, 0], "z");
 
   // Top connectors
   asm.addPart("connector-3d4w", [0, 6, 0]);
   asm.addPart("connector-3d4w", [5, 6, 0]);
   asm.addPart("connector-3d4w", [0, 6, 5]);
   asm.addPart("connector-3d4w", [5, 6, 5]);
+
+  // Top horizontal supports along X axis (front and back)
+  asm.addPart("support-4u", [1, 6, 0], [0, 0, 0], "x");
+  asm.addPart("support-4u", [1, 6, 5], [0, 0, 0], "x");
+
+  // Top horizontal supports along Z axis (left and right)
+  asm.addPart("support-4u", [0, 6, 1], [0, 0, 0], "z");
+  asm.addPart("support-4u", [5, 6, 1], [0, 0, 0], "z");
 });
 await new Promise((r) => setTimeout(r, 3000));
 
