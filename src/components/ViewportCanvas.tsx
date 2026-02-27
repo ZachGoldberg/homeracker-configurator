@@ -588,15 +588,37 @@ function DragPreview({
   const [valid, setValid] = useState(true);
   const [effectiveOrientation, setEffectiveOrientation] = useState<Axis>(dragState.orientation ?? "y");
   const [isSnapped, setIsSnapped] = useState(false);
-  const groundPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
   const intersectPoint = useMemo(() => new THREE.Vector3(), []);
+
+  // Raycast against a plane at the part's world Y so cursor-to-world mapping
+  // matches the visual height (avoids perspective-induced speed mismatch).
+  const partWorldY = gridToWorld(dragState.originalPosition)[1];
+  const dragPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), -partWorldY), [partWorldY]);
+
+  // Track the continuous (non-snapped) XZ offset between the cursor hit and
+  // the part origin so the part stays anchored to the grab point.
+  const grabOffsetRef = useRef<[number, number] | null>(null);
 
   const def = getPartDefinition(dragState.definitionId);
   const isSupport = def?.category === "support";
 
   useFrame(() => {
     raycaster.setFromCamera(pointer, camera);
-    if (!raycaster.ray.intersectPlane(groundPlane, intersectPoint)) return;
+    if (!raycaster.ray.intersectPlane(dragPlane, intersectPoint)) return;
+
+    // On the first frame, compute grab offset in world coords for sub-cell accuracy
+    if (grabOffsetRef.current === null) {
+      const partWorldPos = gridToWorld(dragState.originalPosition);
+      grabOffsetRef.current = [
+        intersectPoint.x - partWorldPos[0],
+        intersectPoint.z - partWorldPos[2],
+      ];
+    }
+
+    // Subtract grab offset in world space, then snap to grid
+    const offset = grabOffsetRef.current;
+    intersectPoint.x -= offset[0];
+    intersectPoint.z -= offset[1];
 
     const cursorGrid = snapToGrid(intersectPoint);
     cursorGrid[1] = 0;
@@ -936,7 +958,10 @@ export function ViewportCanvas(props: ViewportProps) {
       if (Math.sqrt(dx * dx + dy * dy) >= DRAG_THRESHOLD) {
         const part = props.assembly.getPartById(pending.instanceId);
         if (part) {
-          setYLift(0);
+          // Preserve current Y elevation: yLift = currentY - autoGroundLift
+          const def = getPartDefinition(part.definitionId);
+          const groundLift = def ? computeGroundLift(def, part.rotation, part.orientation ?? "y") : 0;
+          setYLift(Math.max(0, part.position[1] - groundLift));
           setDragState({
             instanceId: part.instanceId,
             definitionId: part.definitionId,
