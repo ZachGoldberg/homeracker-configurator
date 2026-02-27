@@ -136,6 +136,23 @@ html, body, #root {
   text-overflow: ellipsis;
 }
 
+.catalog-import-btn {
+  width: 100%;
+  background: var(--bg-tertiary);
+  border: 1px dashed var(--border);
+  color: var(--text-secondary);
+  padding: 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.catalog-import-btn:hover {
+  border-color: #9b59b6;
+  color: #9b59b6;
+}
+
 /* Toolbar */
 .toolbar {
   height: var(--toolbar-height);

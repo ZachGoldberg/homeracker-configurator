@@ -1,6 +1,6 @@
 /// Production build script
 import { join } from "path";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 
 const PROJECT_ROOT = join(import.meta.dir, "..");
 const SRC_DIR = join(PROJECT_ROOT, "src");

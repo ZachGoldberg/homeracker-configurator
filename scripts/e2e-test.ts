@@ -592,7 +592,7 @@ console.log("\n--- Test: Orientation-aware grid occupancy ---");
 const orientedId = await page.evaluate(() => {
   const a = (window as any).__assembly;
   a.clear();
-  return a.addPart("support-3u", [0, 0, 0], [0, 0, 90], "x");
+  return a.addPart("support-3u", [0, 0, 0], [0, 0, 0], "x");
 });
 assert("Place support-3u with orientation x", orientedId !== null);
 
@@ -623,7 +623,7 @@ assert("No collision at [0,0,1] with x-oriented support", freeAtZ1 !== null);
 // Test Z orientation
 await page.evaluate(() => (window as any).__assembly.clear());
 const orientedZ = await page.evaluate(() => {
-  return (window as any).__assembly.addPart("support-3u", [0, 0, 0], [90, 0, 0], "z");
+  return (window as any).__assembly.addPart("support-3u", [0, 0, 0], [0, 0, 0], "z");
 });
 assert("Place support-3u with orientation z", orientedZ !== null);
 
@@ -654,11 +654,11 @@ const canPlaceResults = await page.evaluate(() => {
 
   return {
     // A support-3u at [0,0,0] with orientation Y occupies [0,0,0],[0,1,0],[0,2,0]
-    canPlaceY: a.canPlace("support-3u", [0, 0, 0], "y"),
+    canPlaceY: a.canPlace("support-3u", [0, 0, 0], [0, 0, 0], "y"),
     // A support-3u at [0,0,0] with orientation X occupies [0,0,0],[1,0,0],[2,0,0]
-    canPlaceX: a.canPlace("support-3u", [0, 0, 0], "x"),
+    canPlaceX: a.canPlace("support-3u", [0, 0, 0], [0, 0, 0], "x"),
     // A support-3u at [1,0,0] with orientation X would need [1,0,0],[2,0,0],[3,0,0] - [3,0,0] is occupied
-    cannotPlaceXBlocked: a.canPlace("support-3u", [1, 0, 0], "x"),
+    cannotPlaceXBlocked: a.canPlace("support-3u", [1, 0, 0], [0, 0, 0], "x"),
   };
 });
 
@@ -694,9 +694,9 @@ const snapResults = await page.evaluate(() => {
     count: points.length,
     orientations: [...new Set(orientations)],
     directions: [...new Set(directions)],
-    // Check a specific snap: +y socket should produce Y-oriented support at [5,1,5]
-    hasYSnap: points.some(
-      (p: any) => p.orientation === "y" && p.socketDirection === "+y"
+    // Check a specific snap: +z socket should produce Z-oriented support at [5,0,6]
+    hasZSnap: points.some(
+      (p: any) => p.orientation === "z" && p.socketDirection === "+z"
     ),
     // +x socket should produce X-oriented support
     hasXSnap: points.some(
@@ -706,7 +706,7 @@ const snapResults = await page.evaluate(() => {
 });
 
 assert("Snap finds candidates near connector", snapResults.count > 0, `found ${snapResults.count}`);
-assert("Snap includes Y-oriented candidate (+y socket)", snapResults.hasYSnap);
+assert("Snap includes Z-oriented candidate (+z socket)", snapResults.hasZSnap);
 assert("Snap includes X-oriented candidate (+x socket)", snapResults.hasXSnap);
 assert(
   "Snap has multiple orientations",
@@ -751,7 +751,7 @@ const snapOccupied = await page.evaluate(() => {
 
   // Place connector and a support that blocks the +x direction
   a.addPart("connector-3d6w", [5, 0, 5]);
-  a.addPart("support-3u", [6, 0, 5], [0, 0, 90], "x"); // Occupies [6,0,5],[7,0,5],[8,0,5]
+  a.addPart("support-3u", [6, 0, 5], [0, 0, 0], "x"); // Occupies [6,0,5],[7,0,5],[8,0,5]
 
   // Now find snap points — +x socket should be excluded (blocked)
   const points = snap.findSnapPoints(a, "support-3u", [6, 0, 5], 5);
@@ -778,7 +778,7 @@ await page.evaluate(() => {
   // Connector at origin
   a.addPart("connector-3d6w", [0, 0, 0]);
   // Support along +x axis: origin at [1,0,0], occupies [1,0,0],[2,0,0],[3,0,0]
-  a.addPart("support-3u", [1, 0, 0], [0, 0, 90], "x");
+  a.addPart("support-3u", [1, 0, 0], [0, 0, 0], "x");
 });
 await new Promise((r) => setTimeout(r, 500));
 
@@ -852,6 +852,373 @@ await page.keyboard.press("Escape");
 await new Promise((r) => setTimeout(r, 200));
 
 // Clean up for remaining tests
+await page.evaluate(() => (window as any).__assembly.clear());
+await new Promise((r) => setTimeout(r, 200));
+
+// ──────────────────────────────────────────────
+// Test: Rotation-aware grid collision
+// ──────────────────────────────────────────────
+console.log("\n--- Test: Rotation-aware grid collision ---");
+
+const rotationCollision = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  a.clear();
+
+  // Place support-3u at [0,0,0] with 90° X rotation
+  // Default gridCells for support-3u: [0,0,0],[0,1,0],[0,2,0] (extends along Y)
+  // After 90° X rotation: [x,y,z] → [x,-z,y], so cells become [0,0,0],[0,0,1],[0,0,2] (extends along Z)
+  const id = a.addPart("support-3u", [0, 0, 0], [90, 0, 0]);
+
+  // Check which cells are occupied
+  const occupiedY1 = a.isOccupied([0, 1, 0]); // Should be FREE (rotation moved cells to Z)
+  const occupiedZ1 = a.isOccupied([0, 0, 1]); // Should be OCCUPIED
+  const occupiedZ2 = a.isOccupied([0, 0, 2]); // Should be OCCUPIED
+
+  // Try placing at rotated cell — should fail
+  const collidesZ1 = a.addPart("connector-3d6w", [0, 0, 1]);
+
+  // Try placing at the old (unrotated) cell — should succeed
+  const freeY1 = a.addPart("connector-3d6w", [0, 1, 0]);
+
+  return {
+    placed: id !== null,
+    occupiedY1,
+    occupiedZ1,
+    occupiedZ2,
+    collidesZ1: collidesZ1 === null,
+    freeY1: freeY1 !== null,
+  };
+});
+
+assert("Support placed with 90° X rotation", rotationCollision.placed);
+assert("Rotated cell [0,0,1] is occupied", rotationCollision.occupiedZ1);
+assert("Rotated cell [0,0,2] is occupied", rotationCollision.occupiedZ2);
+assert("Old cell [0,1,0] is free after rotation", !rotationCollision.occupiedY1);
+assert("Cannot place at rotated occupied cell [0,0,1]", rotationCollision.collidesZ1);
+assert("Can place at old free cell [0,1,0]", rotationCollision.freeY1);
+
+// Clean up
+await page.evaluate(() => (window as any).__assembly.clear());
+await new Promise((r) => setTimeout(r, 200));
+
+// ──────────────────────────────────────────────
+// Test: Rotation blocks below-ground placement
+// ──────────────────────────────────────────────
+console.log("\n--- Test: Rotation blocks below-ground ---");
+
+const belowGround = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  a.clear();
+
+  // support-3u default gridCells: [0,0,0],[0,1,0],[0,2,0]
+  // With 90° X rotation: cells become [0,0,0],[0,0,1],[0,0,2] — all Y >= 0, should succeed
+  const validRot = a.canPlace("support-3u", [0, 0, 0], [90, 0, 0]);
+
+  // With 270° X rotation (or equivalently -90°): [x,y,z] → [x,z,-y]
+  // [0,0,0] → [0,0,0], [0,1,0] → [0,0,-1], [0,2,0] → [0,0,-2]
+  // Cell [0,0,-1] has Y=0 which is fine, but Z=-1 — wait, Y is the ground check
+  // Actually [0,0,-1] means y=0 (second element), so Y >= 0 is true. But the Z is -1.
+  // The ground check is worldCell[1] < 0, which is the Y component.
+  // With 270° X: [0,y,z] → [0,z,-y], so [0,1,0] → [0,0,-1], [0,2,0] → [0,0,-2]
+  // worldCell[1] = 0 for all... Y is still >= 0.
+  // Let's use a position + rotation combo that actually goes below ground:
+  // 90° Z rotation: [x,y,z] → [-y,x,z], so [0,1,0] → [-1,0,0], [0,2,0] → [-2,0,0]
+  // worldCell[1] = 0 still OK. Need to offset position to make Y < 0.
+  // Actually, origin at [0,0,0] with 90° Z: cells [0,0,0],[-1,0,0],[-2,0,0] — all Y=0, fine.
+
+  // The simplest case: position at [0,0,0], 180° X rotation:
+  // [0,y,z] → [0,-y,-z]: [0,0,0]→[0,0,0], [0,1,0]→[0,-1,0], [0,2,0]→[0,-2,0]
+  // worldCell = [0+0, 0+(-1), 0+0] = [0,-1,0] — Y < 0! Should be blocked.
+  const blockedRot = a.canPlace("support-3u", [0, 0, 0], [180, 0, 0]);
+
+  return { validRot, blockedRot };
+});
+
+assert("90° X rotation at ground level is valid", belowGround.validRot);
+assert("180° X rotation at ground level is blocked (cells go below Y=0)", !belowGround.blockedRot);
+
+// ──────────────────────────────────────────────
+// Test: canPlaceIgnoring (for drag-to-move)
+// ──────────────────────────────────────────────
+console.log("\n--- Test: canPlaceIgnoring ---");
+
+const ignoreResult = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  a.clear();
+
+  // Place two connectors
+  const id1 = a.addPart("connector-3d6w", [0, 0, 0]);
+  const id2 = a.addPart("connector-3d6w", [2, 0, 0]);
+
+  // canPlaceIgnoring at [0,0,0] ignoring id1 should return true (ignores self)
+  const canIgnoreSelf = a.canPlaceIgnoring("connector-3d6w", [0, 0, 0], [0, 0, 0], id1);
+
+  // canPlaceIgnoring at [2,0,0] ignoring id1 should return false (id2 blocks it)
+  const blockedByOther = a.canPlaceIgnoring("connector-3d6w", [2, 0, 0], [0, 0, 0], id1);
+
+  // canPlaceIgnoring at [1,0,0] ignoring id1 should return true (empty cell)
+  const freeCell = a.canPlaceIgnoring("connector-3d6w", [1, 0, 0], [0, 0, 0], id1);
+
+  return { canIgnoreSelf, blockedByOther, freeCell };
+});
+
+assert("canPlaceIgnoring ignores self at same position", ignoreResult.canIgnoreSelf);
+assert("canPlaceIgnoring still blocked by other parts", !ignoreResult.blockedByOther);
+assert("canPlaceIgnoring allows empty cell", ignoreResult.freeCell);
+
+// ──────────────────────────────────────────────
+// Test: Move part (programmatic)
+// ──────────────────────────────────────────────
+console.log("\n--- Test: Move part programmatic ---");
+
+const moveResult = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  a.clear();
+
+  // Place connector at [0,0,0]
+  const id = a.addPart("connector-3d6w", [0, 0, 0]);
+  if (!id) return { success: false, reason: "failed to place" };
+
+  // Simulate move: remove from old position, add at new position
+  const part = a.getPartById(id);
+  if (!part) return { success: false, reason: "part not found" };
+
+  a.removePart(id);
+  const newId = a.addPart(part.definitionId, [3, 0, 3], part.rotation, part.orientation);
+
+  // Verify old position is free
+  const oldFree = !a.isOccupied([0, 0, 0]);
+  // Verify new position is occupied
+  const newOccupied = a.isOccupied([3, 0, 3]);
+
+  return {
+    success: newId !== null,
+    oldFree,
+    newOccupied,
+    newId,
+  };
+});
+
+assert("Move part succeeds", moveResult.success);
+assert("Old position [0,0,0] is free after move", moveResult.oldFree);
+assert("New position [3,0,3] is occupied after move", moveResult.newOccupied);
+
+// Clean up
+await page.evaluate(() => (window as any).__assembly.clear());
+await new Promise((r) => setTimeout(r, 200));
+
+// ──────────────────────────────────────────────
+// Test: 2D2W L-shape connector snap (both arms)
+// ──────────────────────────────────────────────
+console.log("\n--- Test: 2D2W L-shape snap ---");
+
+// 2D2W has arms: +z and +x (flat on XZ ground plane, an L-shape)
+// Place at [5,0,5]. Support-5u should snap to both arms.
+const lShapeSnap = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  const snap = (window as any).__snap;
+  a.clear();
+
+  // Place 2D2W connector at [5,0,5]
+  a.addPart("connector-2d2w", [5, 0, 5]);
+
+  // Find snap points for support-5u near the connector
+  const points = snap.findSnapPoints(a, "support-5u", [5, 0, 5], 5);
+
+  // Should find exactly 2 snap candidates: one for +z and one for +x
+  const zSnap = points.find((p: any) => p.socketDirection === "+z");
+  const xSnap = points.find((p: any) => p.socketDirection === "+x");
+
+  return {
+    totalCandidates: points.length,
+    hasZSnap: !!zSnap,
+    hasXSnap: !!xSnap,
+    zPos: zSnap?.position,
+    xPos: xSnap?.position,
+    zOrient: zSnap?.orientation,
+    xOrient: xSnap?.orientation,
+  };
+});
+
+assert("2D2W has exactly 2 snap candidates", lShapeSnap.totalCandidates === 2, `got ${lShapeSnap.totalCandidates}`);
+assert("2D2W has +z snap (depth)", lShapeSnap.hasZSnap);
+assert("2D2W has +x snap (horizontal)", lShapeSnap.hasXSnap);
+assert(
+  "+z snap position is in front of connector",
+  lShapeSnap.zPos && lShapeSnap.zPos[2] === 6,
+  `pos: ${JSON.stringify(lShapeSnap.zPos)}`
+);
+assert(
+  "+x snap position is right of connector",
+  lShapeSnap.xPos && lShapeSnap.xPos[0] === 6,
+  `pos: ${JSON.stringify(lShapeSnap.xPos)}`
+);
+assert("+z snap has Z orientation", lShapeSnap.zOrient === "z");
+assert("+x snap has X orientation", lShapeSnap.xOrient === "x");
+
+// Now actually PLACE a support at the +x snap position and verify grid occupancy
+const lShapePlaceX = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  const snap = (window as any).__snap;
+
+  // Find snap candidates again
+  const points = snap.findSnapPoints(a, "support-5u", [5, 0, 5], 5);
+  const xSnap = points.find((p: any) => p.socketDirection === "+x");
+  if (!xSnap) return { placed: false, reason: "no +x snap found" };
+
+  // Place the support at the snap position with the snap orientation
+  const id = a.addPart("support-5u", xSnap.position, [0, 0, 0], xSnap.orientation);
+  if (!id) return { placed: false, reason: "addPart returned null", pos: xSnap.position, orient: xSnap.orientation };
+
+  // Verify the support occupies the correct cells (extending in +x from [6,0,5])
+  const expectedCells: [number, number, number][] = [[6,0,5],[7,0,5],[8,0,5],[9,0,5],[10,0,5]];
+  const occupancy = expectedCells.map((c) => ({
+    cell: c,
+    occupied: a.isOccupied(c),
+  }));
+  const allOccupied = occupancy.every((o: any) => o.occupied);
+
+  // Verify connector cell is NOT occupied by the support
+  const connectorCellStillConnector = a.isOccupied([5, 0, 5]);
+
+  return { placed: true, allOccupied, occupancy, connectorCellStillConnector };
+});
+
+assert("Support placed at +x snap position", lShapePlaceX.placed === true, JSON.stringify(lShapePlaceX));
+assert("X-oriented support occupies cells [6..10, 0, 5]", lShapePlaceX.allOccupied === true,
+  JSON.stringify(lShapePlaceX.occupancy));
+assert("Connector cell [5,0,5] still occupied", lShapePlaceX.connectorCellStillConnector === true);
+
+// Now place a support in the +z slot and verify the snap only offers nothing (both filled)
+const lShapeOpen = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  const snap = (window as any).__snap;
+
+  // Place support-5u in the +z slot (Z-oriented, starting at [5,0,6])
+  a.addPart("support-5u", [5, 0, 6], [0, 0, 0], "z");
+
+  // Check snap points again — both should be gone (occupied)
+  const points = snap.findSnapPoints(a, "support-5u", [5, 0, 5], 5);
+  const hasZSnap = points.some((p: any) => p.socketDirection === "+z");
+  const hasXSnap = points.some((p: any) => p.socketDirection === "+x");
+
+  return { totalCandidates: points.length, hasZSnap, hasXSnap };
+});
+
+assert("After filling both slots, 0 snap candidates remain", lShapeOpen.totalCandidates === 0, `got ${lShapeOpen.totalCandidates}`);
+assert("Filled +z slot is no longer offered", !lShapeOpen.hasZSnap);
+assert("Filled +x slot is no longer offered", !lShapeOpen.hasXSnap);
+
+// Clean up
+await page.evaluate(() => (window as any).__assembly.clear());
+await new Promise((r) => setTimeout(r, 200));
+
+// ──────────────────────────────────────────────
+// Test: Connector snaps to top of vertical support
+// ──────────────────────────────────────────────
+console.log("\n--- Test: Connector snap to vertical support top ---");
+
+const connectorSnapTop = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  const snap = (window as any).__snap;
+  a.clear();
+
+  // Place a support-5u vertically at [5,0,5] — extends Y from 0 to 4
+  a.addPart("support-5u", [5, 0, 5], [0, 0, 0], "y");
+
+  // Find connector snap points near cursor at [5,0,5] (ground level)
+  // The support top is at [5,4,5], outward direction +y, connector at [5,5,5]
+  const points = snap.findConnectorSnapPoints(a, "connector-3d6w", [5, 0, 5], 3);
+  const topSnap = points.find((p: any) => p.socketDirection === "+y");
+  const bottomSnap = points.find((p: any) => p.socketDirection === "-y");
+
+  return {
+    count: points.length,
+    hasTopSnap: !!topSnap,
+    topPos: topSnap?.position,
+    // Bottom snap at [5,-1,5] should be excluded (below ground)
+    hasBottomSnap: !!bottomSnap,
+  };
+});
+
+assert("Connector snap finds support top", connectorSnapTop.hasTopSnap,
+  `count=${connectorSnapTop.count}`);
+assert("Connector snap top is at [5,5,5]",
+  connectorSnapTop.topPos && connectorSnapTop.topPos[0] === 5 && connectorSnapTop.topPos[1] === 5 && connectorSnapTop.topPos[2] === 5,
+  `pos: ${JSON.stringify(connectorSnapTop.topPos)}`);
+assert("Bottom snap excluded (below ground)", !connectorSnapTop.hasBottomSnap);
+
+// Also test with support-10u (top at y=9, connector at y=10)
+const connectorSnapTall = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  const snap = (window as any).__snap;
+  a.clear();
+
+  a.addPart("support-10u", [5, 0, 5], [0, 0, 0], "y");
+  const points = snap.findConnectorSnapPoints(a, "connector-2d2w", [5, 0, 5], 3);
+  const topSnap = points.find((p: any) => p.socketDirection === "+y");
+
+  return {
+    hasTopSnap: !!topSnap,
+    topPos: topSnap?.position,
+  };
+});
+
+assert("Connector snap finds top of tall (10u) support",
+  connectorSnapTall.hasTopSnap,
+  `pos: ${JSON.stringify(connectorSnapTall.topPos)}`);
+assert("Connector at top of 10u support is at [5,10,5]",
+  connectorSnapTall.topPos && connectorSnapTall.topPos[1] === 10,
+  `pos: ${JSON.stringify(connectorSnapTall.topPos)}`);
+
+// Clean up
+await page.evaluate(() => (window as any).__assembly.clear());
+await new Promise((r) => setTimeout(r, 200));
+
+// ──────────────────────────────────────────────
+// Test: Ray-based snap proximity
+// ──────────────────────────────────────────────
+console.log("\n--- Test: Ray-based snap proximity ---");
+
+const raySnap = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  const snap = (window as any).__snap;
+  a.clear();
+
+  // Place a support-10u vertically at [5,0,5] — top at y=9, connector snap at [5,10,5]
+  a.addPart("support-10u", [5, 0, 5], [0, 0, 0], "y");
+
+  // Cursor on ground at [5,0,10] — XZ distance to [5,10,5] is 5, beyond maxDistance=3
+  // Without ray, this should NOT find the top snap
+  const withoutRay = snap.findConnectorSnapPoints(a, "connector-3d6w", [5, 0, 10], 3);
+  const topWithoutRay = withoutRay.find((p: any) => p.socketDirection === "+y");
+
+  // With a ray pointing from above toward the support top, ray passes close to [5,10,5]
+  // Simulate a camera at [5, 20, 15] looking toward [5, 10, 5]
+  const rayOrigin = [5, 20, 15] as [number, number, number]; // in grid units
+  const rawDir = [5 - 5, 10 - 20, 5 - 15] as [number, number, number]; // [0, -10, -10]
+  const len = Math.sqrt(rawDir[0] ** 2 + rawDir[1] ** 2 + rawDir[2] ** 2);
+  const rayDir = [rawDir[0] / len, rawDir[1] / len, rawDir[2] / len] as [number, number, number];
+  const ray = { origin: rayOrigin, direction: rayDir };
+
+  const withRay = snap.findConnectorSnapPoints(a, "connector-3d6w", [5, 0, 10], 3, ray);
+  const topWithRay = withRay.find((p: any) => p.socketDirection === "+y");
+
+  return {
+    hasTopWithoutRay: !!topWithoutRay,
+    hasTopWithRay: !!topWithRay,
+    topPos: topWithRay?.position,
+  };
+});
+
+assert("No top snap without ray (cursor XZ too far)", !raySnap.hasTopWithoutRay);
+assert("Top snap found with ray proximity", raySnap.hasTopWithRay,
+  `pos: ${JSON.stringify(raySnap.topPos)}`);
+assert("Ray snap position is [5,10,5]",
+  raySnap.topPos && raySnap.topPos[0] === 5 && raySnap.topPos[1] === 10 && raySnap.topPos[2] === 5,
+  `pos: ${JSON.stringify(raySnap.topPos)}`);
+
+// Clean up
 await page.evaluate(() => (window as any).__assembly.clear());
 await new Promise((r) => setTimeout(r, 200));
 

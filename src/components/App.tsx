@@ -1,4 +1,4 @@
-import { useState, useCallback, useSyncExternalStore } from "react";
+import { useState, useCallback, useEffect, useSyncExternalStore } from "react";
 import { ViewportCanvas } from "./ViewportCanvas";
 import { Sidebar } from "./Sidebar";
 import { Toolbar } from "./Toolbar";
@@ -7,7 +7,7 @@ import { AssemblyState } from "../assembly/AssemblyState";
 import { HistoryManager, type Command } from "../assembly/HistoryManager";
 import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3 } from "../types";
 import { getPartDefinition } from "../data/catalog";
-import { findBestSnap, findSnapPoints } from "../assembly/snap";
+import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints } from "../assembly/snap";
 
 // Global singleton instances
 const assembly = new AssemblyState();
@@ -33,7 +33,7 @@ assembly.subscribe(() => {
 
 // Expose for e2e testing
 (window as any).__assembly = assembly;
-(window as any).__snap = { findBestSnap, findSnapPoints };
+(window as any).__snap = { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints };
 
 export function App() {
   const [mode, setMode] = useState<InteractionMode>({ type: "select" });
@@ -164,6 +164,22 @@ export function App() {
 
   const handleUndo = useCallback(() => history.undo(), []);
   const handleRedo = useCallback(() => history.redo(), []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if (
+        (e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))
+      ) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleUndo, handleRedo]);
 
   const handleClear = useCallback(() => {
     assembly.clear();

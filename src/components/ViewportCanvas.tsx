@@ -5,9 +5,10 @@ import * as THREE from "three";
 import { BASE_UNIT, PART_COLORS, GRID_EXTENT } from "../constants";
 import type { PlacedPart, InteractionMode, GridPosition, Rotation3, RotationStep, Axis, DragState } from "../types";
 import { getPartDefinition } from "../data/catalog";
+import { isCustomPart, getCustomPartGeometry } from "../data/custom-parts";
 import { AssemblyState } from "../assembly/AssemblyState";
-import { orientationToRotation, nextOrientation } from "../assembly/grid-utils";
-import { findBestSnap } from "../assembly/snap";
+import { nextOrientation, orientationToRotation, transformCell, rotateGridCells } from "../assembly/grid-utils";
+import { findBestSnap, findBestConnectorSnap, type GridRay } from "../assembly/snap";
 
 interface ViewportProps {
   parts: PlacedPart[];
@@ -36,7 +37,34 @@ function snapToGrid(worldPos: THREE.Vector3): GridPosition {
   ];
 }
 
-/** A placed part rendered with its actual GLB model */
+/**
+ * Compute the offset to center a GLB model over its grid cells.
+ * GLB models are centered at origin; this shifts them so the model
+ * spans all occupied cells correctly.
+ *
+ * Grid cells are center-based: gridToWorld maps index → cell center.
+ * The offset is the average of cell center positions (in oriented space).
+ *
+ * When an orientation is provided, cells are first transformed to the
+ * oriented space. The offset is computed in world space (OUTSIDE the
+ * orientation rotation group).
+ */
+function modelCenterOffset(def: { gridCells: GridPosition[] }, orientation: Axis = "y"): [number, number, number] {
+  const cells = def.gridCells.map((c) => transformCell(c, orientation));
+  const minX = Math.min(...cells.map((c) => c[0]));
+  const minY = Math.min(...cells.map((c) => c[1]));
+  const minZ = Math.min(...cells.map((c) => c[2]));
+  const maxX = Math.max(...cells.map((c) => c[0]));
+  const maxY = Math.max(...cells.map((c) => c[1]));
+  const maxZ = Math.max(...cells.map((c) => c[2]));
+  return [
+    ((minX + maxX) / 2) * BASE_UNIT,
+    ((minY + maxY) / 2) * BASE_UNIT,
+    ((minZ + maxZ) / 2) * BASE_UNIT,
+  ];
+}
+
+/** A placed part rendered with its actual GLB model (or custom STL geometry) */
 function PartMesh({
   part,
   isSelected,
@@ -51,10 +79,64 @@ function PartMesh({
   const def = getPartDefinition(part.definitionId);
   if (!def) return null;
 
+  if (isCustomPart(part.definitionId)) {
+    return <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} onPointerDown={onPointerDown} />;
+  }
+
   return (
     <Suspense fallback={<PartMeshFallback part={part} isSelected={isSelected} onClick={() => {}} />}>
       <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} onPointerDown={onPointerDown} />
     </Suspense>
+  );
+}
+
+/** Rendered mesh for a custom STL-imported part */
+function CustomPartMesh({
+  part,
+  isSelected,
+  isDragging,
+  onPointerDown,
+}: {
+  part: PlacedPart;
+  isSelected: boolean;
+  isDragging: boolean;
+  onPointerDown: (e: any) => void;
+}) {
+  const def = getPartDefinition(part.definitionId)!;
+  const geometry = getCustomPartGeometry(part.definitionId);
+  if (!geometry) return null;
+
+  const worldPos = gridToWorld(part.position);
+  const partEuler = degreesToEuler(part.rotation);
+  // Compute offset from ROTATED cells so it stays correct after rotation
+  const rotatedCells = rotateGridCells(def.gridCells, part.rotation);
+  const offset = modelCenterOffset({ gridCells: rotatedCells });
+  const color = isSelected ? PART_COLORS.selected : PART_COLORS.custom;
+  const opacity = isDragging ? 0.3 : 1;
+
+  return (
+    <group
+      name={`placed-${part.instanceId}`}
+      position={worldPos}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        onPointerDown(e);
+      }}
+    >
+      <group position={offset}>
+        <group rotation={partEuler}>
+          <mesh geometry={geometry}>
+            <meshStandardMaterial color={color} transparent={isDragging} opacity={opacity} />
+          </mesh>
+        </group>
+      </group>
+      {isSelected && !isDragging && (
+        <mesh position={offset}>
+          <boxGeometry args={[BASE_UNIT * 1.1, BASE_UNIT * 1.1, BASE_UNIT * 1.1]} />
+          <meshBasicMaterial color={PART_COLORS.selected} wireframe transparent opacity={0.3} />
+        </mesh>
+      )}
+    </group>
   );
 }
 
@@ -95,25 +177,34 @@ function PartMeshLoaded({
   }, [isSelected, isDragging]);
 
   const partEuler = degreesToEuler(part.rotation);
+  const orientEuler = degreesToEuler(orientationToRotation(part.orientation ?? "y"));
+  // Compute offset from oriented THEN rotated cells — placed outside both rotation groups
+  const orient = part.orientation ?? "y";
+  const orientedCells = def.gridCells.map((c) => transformCell(c, orient));
+  const rotatedCells = rotateGridCells(orientedCells, part.rotation);
+  const offset = modelCenterOffset({ gridCells: rotatedCells });
 
-  // OpenSCAD Z-up to Three.js Y-up: rotate -90 degrees around X
   return (
     <group
       name={`placed-${part.instanceId}`}
       position={worldPos}
-      rotation={partEuler}
       onPointerDown={(e) => {
         e.stopPropagation();
         onPointerDown(e);
       }}
     >
-      <primitive
-        ref={groupRef}
-        object={cloned}
-        rotation={[-Math.PI / 2, 0, 0]}
-      />
+      <group position={offset}>
+        <group rotation={partEuler}>
+          <group rotation={orientEuler}>
+            <primitive
+              ref={groupRef}
+              object={cloned}
+            />
+          </group>
+        </group>
+      </group>
       {isSelected && !isDragging && (
-        <mesh>
+        <mesh position={offset}>
           <boxGeometry args={[BASE_UNIT * 1.1, BASE_UNIT * 1.1, BASE_UNIT * 1.1]} />
           <meshBasicMaterial
             color={PART_COLORS.selected}
@@ -145,24 +236,28 @@ function PartMeshFallback({
     ? PART_COLORS.selected
     : PART_COLORS[def.category] || "#888888";
 
-  const cells = def.gridCells;
+  // Use oriented + rotated cells for correct sizing and offset
+  const orient = part.orientation ?? "y";
+  const orientedCells = def.gridCells.map((c) => transformCell(c, orient));
+  const cells = rotateGridCells(orientedCells, part.rotation);
   const minX = Math.min(...cells.map((c) => c[0]));
   const minY = Math.min(...cells.map((c) => c[1]));
   const minZ = Math.min(...cells.map((c) => c[2]));
-  const maxX = Math.max(...cells.map((c) => c[0])) + 1;
-  const maxY = Math.max(...cells.map((c) => c[1])) + 1;
-  const maxZ = Math.max(...cells.map((c) => c[2])) + 1;
+  const maxX = Math.max(...cells.map((c) => c[0]));
+  const maxY = Math.max(...cells.map((c) => c[1]));
+  const maxZ = Math.max(...cells.map((c) => c[2]));
 
-  const sizeX = (maxX - minX) * BASE_UNIT;
-  const sizeY = (maxY - minY) * BASE_UNIT;
-  const sizeZ = (maxZ - minZ) * BASE_UNIT;
+  const sizeX = (maxX - minX + 1) * BASE_UNIT;
+  const sizeY = (maxY - minY + 1) * BASE_UNIT;
+  const sizeZ = (maxZ - minZ + 1) * BASE_UNIT;
 
   const centerOffset: [number, number, number] = [
-    ((minX + maxX) / 2) * BASE_UNIT,
-    ((minY + maxY) / 2) * BASE_UNIT,
-    ((minZ + maxZ) / 2) * BASE_UNIT,
+    ((minX + maxX + 1) / 2) * BASE_UNIT,
+    ((minY + maxY + 1) / 2) * BASE_UNIT,
+    ((minZ + maxZ + 1) / 2) * BASE_UNIT,
   ];
 
+  // Box dimensions already reflect orientation + rotation — no rotation group needed
   return (
     <group position={worldPos}>
       <mesh
@@ -199,11 +294,34 @@ function GhostModel({
   definitionId,
   valid,
   rotation,
+  orientation,
   isSnapped,
 }: {
   definitionId: string;
   valid: boolean;
   rotation: Rotation3;
+  orientation?: Axis;
+  isSnapped?: boolean;
+}) {
+  if (isCustomPart(definitionId)) {
+    return <CustomGhostModel definitionId={definitionId} valid={valid} rotation={rotation} isSnapped={isSnapped} />;
+  }
+
+  return <GLBGhostModel definitionId={definitionId} valid={valid} rotation={rotation} orientation={orientation} isSnapped={isSnapped} />;
+}
+
+/** Ghost preview for GLB-based parts */
+function GLBGhostModel({
+  definitionId,
+  valid,
+  rotation,
+  orientation,
+  isSnapped,
+}: {
+  definitionId: string;
+  valid: boolean;
+  rotation: Rotation3;
+  orientation?: Axis;
   isSnapped?: boolean;
 }) {
   const def = getPartDefinition(definitionId)!;
@@ -231,41 +349,90 @@ function GhostModel({
   }, [color]);
 
   const euler = degreesToEuler(rotation);
+  const orient = orientation ?? "y";
+  const orientEuler = degreesToEuler(orientationToRotation(orient));
+  // Compute offset from oriented THEN rotated cells — placed outside both rotation groups
+  const orientedCells = def.gridCells.map((c) => transformCell(c, orient));
+  const rotatedCells = rotateGridCells(orientedCells, rotation);
+  const offset = modelCenterOffset({ gridCells: rotatedCells });
 
   return (
-    <group rotation={euler}>
-      <primitive
-        ref={groupRef}
-        object={cloned}
-        rotation={[-Math.PI / 2, 0, 0]}
-      />
+    <group position={offset}>
+      <group rotation={euler}>
+        <group rotation={orientEuler}>
+          <primitive
+            ref={groupRef}
+            object={cloned}
+          />
+        </group>
+      </group>
+    </group>
+  );
+}
+
+/** Ghost preview for custom STL-imported parts */
+function CustomGhostModel({
+  definitionId,
+  valid,
+  rotation,
+  isSnapped,
+}: {
+  definitionId: string;
+  valid: boolean;
+  rotation: Rotation3;
+  isSnapped?: boolean;
+}) {
+  const def = getPartDefinition(definitionId)!;
+  const geometry = getCustomPartGeometry(definitionId);
+  if (!geometry) return null;
+
+  const color = !valid
+    ? PART_COLORS.ghost_invalid
+    : isSnapped
+      ? PART_COLORS.ghost_snapped
+      : PART_COLORS.ghost_valid;
+
+  const euler = degreesToEuler(rotation);
+  // Compute offset from rotated cells — placed outside rotation
+  const rotatedCells = rotateGridCells(def.gridCells, rotation);
+  const offset = modelCenterOffset({ gridCells: rotatedCells });
+
+  return (
+    <group position={offset}>
+      <group rotation={euler}>
+        <mesh geometry={geometry}>
+          <meshStandardMaterial color={color} transparent opacity={0.4} depthWrite={false} />
+        </mesh>
+      </group>
     </group>
   );
 }
 
 /** Fallback box while ghost GLB is loading */
-function GhostFallback({ definitionId, valid }: { definitionId: string; valid: boolean }) {
+function GhostFallback({ definitionId, valid, orientation }: { definitionId: string; valid: boolean; orientation?: Axis }) {
   const def = getPartDefinition(definitionId);
   if (!def) return null;
 
-  const cells = def.gridCells;
+  const orient = orientation ?? "y";
+  const cells = def.gridCells.map((c) => transformCell(c, orient));
   const minX = Math.min(...cells.map((c) => c[0]));
   const minY = Math.min(...cells.map((c) => c[1]));
   const minZ = Math.min(...cells.map((c) => c[2]));
-  const maxX = Math.max(...cells.map((c) => c[0])) + 1;
-  const maxY = Math.max(...cells.map((c) => c[1])) + 1;
-  const maxZ = Math.max(...cells.map((c) => c[2])) + 1;
+  const maxX = Math.max(...cells.map((c) => c[0]));
+  const maxY = Math.max(...cells.map((c) => c[1]));
+  const maxZ = Math.max(...cells.map((c) => c[2]));
 
-  const sizeX = (maxX - minX) * BASE_UNIT;
-  const sizeY = (maxY - minY) * BASE_UNIT;
-  const sizeZ = (maxZ - minZ) * BASE_UNIT;
+  const sizeX = (maxX - minX + 1) * BASE_UNIT;
+  const sizeY = (maxY - minY + 1) * BASE_UNIT;
+  const sizeZ = (maxZ - minZ + 1) * BASE_UNIT;
 
   const centerOffset: [number, number, number] = [
-    ((minX + maxX) / 2) * BASE_UNIT,
-    ((minY + maxY) / 2) * BASE_UNIT,
-    ((minZ + maxZ) / 2) * BASE_UNIT,
+    ((minX + maxX + 1) / 2) * BASE_UNIT,
+    ((minY + maxY + 1) / 2) * BASE_UNIT,
+    ((minZ + maxZ + 1) / 2) * BASE_UNIT,
   ];
 
+  // No rotation needed — box dimensions already reflect oriented space
   return (
     <mesh position={centerOffset}>
       <boxGeometry args={[sizeX * 0.95, sizeY * 0.95, sizeZ * 0.95]} />
@@ -306,6 +473,7 @@ function GhostPreview({
   const [gridPos, setGridPos] = useState<GridPosition>([0, 0, 0]);
   const [valid, setValid] = useState(true);
   const [effectiveOrientation, setEffectiveOrientation] = useState<Axis>("y");
+  const [effectiveRotation, setEffectiveRotation] = useState<Rotation3>([0, 0, 0]);
   const [isSnapped, setIsSnapped] = useState(false);
   const groundPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
   const intersectPoint = useMemo(() => new THREE.Vector3(), []);
@@ -320,27 +488,46 @@ function GhostPreview({
     const cursorGrid = snapToGrid(intersectPoint);
     cursorGrid[1] = 0; // cursor is on ground plane
 
-    if (isSupport) {
-      // Try to find a snap point near a connector socket
-      const snap = findBestSnap(assembly, definitionId, cursorGrid, 3);
-      if (snap) {
-        // Snap forces orientation (the axis the support extends along),
-        // but user rotation (R/T/F) still applies on top
-        const orient = snap.orientation;
-        const canPlaceSnapped = assembly.canPlace(definitionId, snap.position, ghostRotation, orient);
-        setGridPos(snap.position);
-        setEffectiveOrientation(orient);
-        setValid(canPlaceSnapped);
-        setIsSnapped(true);
-        ghostStateRef.current = {
-          position: snap.position,
-          orientation: orient,
-          valid: canPlaceSnapped,
-          rotation: ghostRotation,
-          isSnapped: true,
-        };
-        return;
-      }
+    // Build grid-space ray for proximity-based snap filtering.
+    // When looking at elevated snap points (e.g. support top), the ground-plane
+    // cursor is displaced in XZ due to camera angle — the ray catches these cases.
+    const gridRay: GridRay = {
+      origin: [
+        raycaster.ray.origin.x / BASE_UNIT,
+        raycaster.ray.origin.y / BASE_UNIT,
+        raycaster.ray.origin.z / BASE_UNIT,
+      ],
+      direction: [
+        raycaster.ray.direction.x,
+        raycaster.ray.direction.y,
+        raycaster.ray.direction.z,
+      ],
+    };
+
+    // Try snapping: supports snap to connector sockets, connectors snap to support endpoints
+    const snap = isSupport
+      ? findBestSnap(assembly, definitionId, cursorGrid, 3, gridRay)
+      : findBestConnectorSnap(assembly, definitionId, cursorGrid, 3, gridRay);
+
+    if (snap) {
+      const orient = isSupport ? snap.orientation : ghostOrientation;
+      // When snapping a support, the snap engine provides position + orientation.
+      // User rotation (R/T/F) would conflict, so override to identity for supports.
+      const snapRotation: Rotation3 = isSupport ? [0, 0, 0] : ghostRotation;
+      const canPlaceSnapped = assembly.canPlace(definitionId, snap.position, snapRotation, orient);
+      setGridPos(snap.position);
+      setEffectiveOrientation(orient);
+      setEffectiveRotation(snapRotation);
+      setValid(canPlaceSnapped);
+      setIsSnapped(true);
+      ghostStateRef.current = {
+        position: snap.position,
+        orientation: orient,
+        valid: canPlaceSnapped,
+        rotation: snapRotation,
+        isSnapped: true,
+      };
+      return;
     }
 
     // No snap — use free placement with current orientation/rotation
@@ -348,6 +535,7 @@ function GhostPreview({
     const canPlace = assembly.canPlace(definitionId, cursorGrid, ghostRotation, orient);
 
     setEffectiveOrientation(orient);
+    setEffectiveRotation(ghostRotation);
     setGridPos(cursorGrid);
     setValid(canPlace);
     setIsSnapped(false);
@@ -363,14 +551,12 @@ function GhostPreview({
   if (!def) return null;
 
   const worldPos = gridToWorld(gridPos);
-  const displayRotation = isSupport
-    ? orientationToRotation(effectiveOrientation)
-    : ghostRotation;
+  const displayRotation = effectiveRotation;
 
   return (
     <group name="ghost-preview" position={worldPos}>
-      <Suspense fallback={<GhostFallback definitionId={definitionId} valid={valid} />}>
-        <GhostModel definitionId={definitionId} valid={valid} rotation={displayRotation} isSnapped={isSnapped} />
+      <Suspense fallback={<GhostFallback definitionId={definitionId} valid={valid} orientation={effectiveOrientation} />}>
+        <GhostModel definitionId={definitionId} valid={valid} rotation={displayRotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
       </Suspense>
     </group>
   );
@@ -417,8 +603,8 @@ function DragPreview({
 
   return (
     <group name="drag-preview" position={worldPos}>
-      <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} valid={valid} />}>
-        <GhostModel definitionId={dragState.definitionId} valid={valid} rotation={dragState.rotation} />
+      <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} valid={valid} orientation={dragState.orientation} />}>
+        <GhostModel definitionId={dragState.definitionId} valid={valid} rotation={dragState.rotation} orientation={dragState.orientation} />
       </Suspense>
     </group>
   );

@@ -56,7 +56,7 @@ export function orientationToRotation(orientation: Axis): Rotation3 {
     case "y":
       return [0, 0, 0];
     case "x":
-      return [0, 0, 90 as RotationStep];
+      return [0, 0, 270 as RotationStep];
     case "z":
       return [90 as RotationStep, 0, 0];
   }
@@ -111,6 +111,55 @@ export function rotateGridCells(
     return cells;
   }
   return cells.map((cell) => rotateCellByRotation3(cell, rotation));
+}
+
+/**
+ * Rotate a direction by a Rotation3 (90° increments).
+ * Converts direction to a unit vector, rotates it, then converts back.
+ */
+export function rotateDirection(direction: Direction, rotation: Rotation3): Direction {
+  if (rotation[0] === 0 && rotation[1] === 0 && rotation[2] === 0) return direction;
+
+  const vec = directionToVector(direction);
+  const rotated = rotateCellByRotation3(vec, rotation);
+  return vectorToDirection(rotated);
+}
+
+function directionToVector(dir: Direction): GridPosition {
+  switch (dir) {
+    case "+x": return [1, 0, 0];
+    case "-x": return [-1, 0, 0];
+    case "+y": return [0, 1, 0];
+    case "-y": return [0, -1, 0];
+    case "+z": return [0, 0, 1];
+    case "-z": return [0, 0, -1];
+  }
+}
+
+function vectorToDirection(v: GridPosition): Direction {
+  if (v[0] >= 1) return "+x";
+  if (v[0] <= -1) return "-x";
+  if (v[1] >= 1) return "+y";
+  if (v[1] <= -1) return "-y";
+  if (v[2] >= 1) return "+z";
+  return "-z";
+}
+
+/**
+ * Transform a direction based on support orientation.
+ * Catalog defines support connection dirs along Y; this remaps to the target axis.
+ */
+export function transformDirection(direction: Direction, orientation: Axis): Direction {
+  if (orientation === "y") return direction;
+  if (orientation === "x") {
+    if (direction === "+y") return "+x";
+    if (direction === "-y") return "-x";
+    return direction;
+  }
+  // orientation === "z"
+  if (direction === "+y") return "+z";
+  if (direction === "-y") return "-z";
+  return direction;
 }
 
 /** Extract the axis from a direction string. */

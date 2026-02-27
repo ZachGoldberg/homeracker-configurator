@@ -1,5 +1,6 @@
 import type { PartDefinition, ConnectionPoint, GridPosition } from "../types";
 import { getArmDirections, CONNECTOR_CONFIGS } from "./connector-configs";
+import { getCustomPartDefinition, getCustomParts } from "./custom-parts";
 
 /** Generate connection points for a connector from its arm config */
 function connectorConnectionPoints(configId: string): ConnectionPoint[] {
@@ -76,14 +77,15 @@ export const PART_CATALOG: PartDefinition[] = [
   },
 ];
 
-/** Look up a part definition by ID */
+/** Look up a part definition by ID (checks built-in catalog, then custom parts) */
 export function getPartDefinition(id: string): PartDefinition | undefined {
-  return PART_CATALOG.find((p) => p.id === id);
+  return PART_CATALOG.find((p) => p.id === id) ?? getCustomPartDefinition(id);
 }
 
 /** Get parts filtered by category */
 export function getPartsByCategory(
   category: PartDefinition["category"]
 ): PartDefinition[] {
+  if (category === "custom") return getCustomParts();
   return PART_CATALOG.filter((p) => p.category === category);
 }

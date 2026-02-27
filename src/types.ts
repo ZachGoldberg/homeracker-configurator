@@ -2,7 +2,7 @@
 export type GridPosition = [number, number, number];
 
 /** Part category */
-export type PartCategory = "support" | "connector" | "lockpin";
+export type PartCategory = "support" | "connector" | "lockpin" | "custom";
 
 /** Direction an arm/connection faces */
 export type Direction = "+x" | "-x" | "+y" | "-y" | "+z" | "-z";
