@@ -7,8 +7,10 @@
     "dev": "bun run scripts/dev-server.ts",
     "build": "bun run scripts/build.ts",
     "generate-models": "bash scripts/generate-models.sh",
-    "test:e2e": "bun run scripts/e2e-test.ts",
-    "test:e2e:headed": "HEADED=1 bun run scripts/e2e-test.ts"
+    "test:e2e": "npx playwright test",
+    "test:e2e:headed": "npx playwright test --headed",
+    "test:e2e:ui": "npx playwright test --ui",
+    "screenshot": "bun run scripts/screenshot.ts"
   },
   "dependencies": {
     "react": "^19.0.0",
@@ -18,10 +20,10 @@
     "@react-three/drei": "^10.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/three": "^0.172.0",
-    "puppeteer": "^24.37.5",
     "typescript": "^5.7.0"
   }
 }

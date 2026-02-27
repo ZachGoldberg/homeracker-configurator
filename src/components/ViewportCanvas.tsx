@@ -712,9 +712,9 @@ function Scene({
     <>
       <ExposeScene />
       {/* Lighting */}
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[100, 200, 100]} intensity={0.8} castShadow />
-      <directionalLight position={[-50, 100, -50]} intensity={0.3} />
+      <ambientLight intensity={1.5} />
+      <directionalLight position={[100, 200, 100]} intensity={1.5} castShadow />
+      <directionalLight position={[-50, 100, -50]} intensity={0.8} />
 
       {/* Camera controls — disabled during drag */}
       <OrbitControls makeDefault enableDamping dampingFactor={0.1} enabled={!dragState} />
@@ -725,10 +725,10 @@ function Scene({
         args={[GRID_EXTENT * BASE_UNIT * 2, GRID_EXTENT * BASE_UNIT * 2]}
         cellSize={BASE_UNIT}
         cellThickness={0.5}
-        cellColor="#444444"
+        cellColor="#666666"
         sectionSize={BASE_UNIT * 5}
         sectionThickness={1}
-        sectionColor="#666666"
+        sectionColor="#888888"
         fadeDistance={GRID_EXTENT * BASE_UNIT * 8}
         fadeStrength={1}
         infiniteGrid
@@ -939,6 +939,7 @@ export function ViewportCanvas(props: ViewportProps) {
       <Canvas
         camera={{ position: [150, 200, 150], fov: 50, near: 1, far: 10000 }}
         gl={{ antialias: true }}
+        scene={{ background: new THREE.Color("#2a2a4a") }}
       >
         <Scene
           {...props}
