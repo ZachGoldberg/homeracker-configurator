@@ -122,6 +122,7 @@ function CustomPartMesh({
         e.stopPropagation();
         onPointerDown(e);
       }}
+      onClick={(e) => e.stopPropagation()}
     >
       <group position={offset}>
         <group rotation={partEuler}>
@@ -192,6 +193,7 @@ function PartMeshLoaded({
         e.stopPropagation();
         onPointerDown(e);
       }}
+      onClick={(e) => e.stopPropagation()}
     >
       <group position={offset}>
         <group rotation={partEuler}>
@@ -562,7 +564,7 @@ function GhostPreview({
   );
 }
 
-/** Drag preview — follows cursor on ground plane, shows ghost at snapped grid position */
+/** Drag preview — follows cursor on ground plane, snaps to connectors/supports */
 function DragPreview({
   dragState,
   assembly,
@@ -575,36 +577,81 @@ function DragPreview({
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>(dragState.originalPosition);
   const [valid, setValid] = useState(true);
+  const [effectiveOrientation, setEffectiveOrientation] = useState<Axis>(dragState.orientation ?? "y");
+  const [isSnapped, setIsSnapped] = useState(false);
   const groundPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
   const intersectPoint = useMemo(() => new THREE.Vector3(), []);
+
+  const def = getPartDefinition(dragState.definitionId);
+  const isSupport = def?.category === "support";
 
   useFrame(() => {
     raycaster.setFromCamera(pointer, camera);
     if (!raycaster.ray.intersectPlane(groundPlane, intersectPoint)) return;
 
-    const snapped = snapToGrid(intersectPoint);
-    snapped[1] = 0;
+    const cursorGrid = snapToGrid(intersectPoint);
+    cursorGrid[1] = 0;
+
+    // Build grid-space ray for proximity-based snap
+    const gridRay: GridRay = {
+      origin: [
+        raycaster.ray.origin.x / BASE_UNIT,
+        raycaster.ray.origin.y / BASE_UNIT,
+        raycaster.ray.origin.z / BASE_UNIT,
+      ],
+      direction: [
+        raycaster.ray.direction.x,
+        raycaster.ray.direction.y,
+        raycaster.ray.direction.z,
+      ],
+    };
+
+    // Try snap: supports → connector sockets, connectors → support endpoints
+    const snap = isSupport
+      ? findBestSnap(assembly, dragState.definitionId, cursorGrid, 3, gridRay)
+      : findBestConnectorSnap(assembly, dragState.definitionId, cursorGrid, 3, gridRay);
+
+    if (snap) {
+      const orient = isSupport ? snap.orientation : (dragState.orientation ?? "y");
+      const canPlace = assembly.canPlaceIgnoring(
+        dragState.definitionId,
+        snap.position,
+        dragState.rotation,
+        dragState.instanceId,
+        orient,
+      );
+      setGridPos(snap.position);
+      setEffectiveOrientation(orient);
+      setValid(canPlace);
+      setIsSnapped(true);
+      dropTargetRef.current = { position: snap.position, valid: canPlace };
+      return;
+    }
+
+    // No snap — free placement on ground plane
+    const orient = dragState.orientation ?? "y";
     const canPlace = assembly.canPlaceIgnoring(
       dragState.definitionId,
-      snapped,
+      cursorGrid,
       dragState.rotation,
       dragState.instanceId,
-      dragState.orientation,
+      orient,
     );
-    setGridPos(snapped);
+    setGridPos(cursorGrid);
+    setEffectiveOrientation(orient);
     setValid(canPlace);
-    dropTargetRef.current = { position: snapped, valid: canPlace };
+    setIsSnapped(false);
+    dropTargetRef.current = { position: cursorGrid, valid: canPlace };
   });
 
-  const def = getPartDefinition(dragState.definitionId);
   if (!def) return null;
 
   const worldPos = gridToWorld(gridPos);
 
   return (
     <group name="drag-preview" position={worldPos}>
-      <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} valid={valid} orientation={dragState.orientation} />}>
-        <GhostModel definitionId={dragState.definitionId} valid={valid} rotation={dragState.rotation} orientation={dragState.orientation} />
+      <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} valid={valid} orientation={effectiveOrientation} />}>
+        <GhostModel definitionId={dragState.definitionId} valid={valid} rotation={dragState.rotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
       </Suspense>
     </group>
   );
