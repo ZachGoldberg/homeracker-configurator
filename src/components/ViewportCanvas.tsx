@@ -569,6 +569,16 @@ function GhostPreview({
       const snapRotation: Rotation3 = isSupport ? [0, 0, 0] : (snap.autoRotation ?? ghostRotation);
       // Snap position Y is already correct (adjacent to support endpoint); only add user yLift
       const liftedSnapPos: GridPosition = [snap.position[0], snap.position[1] + yLift, snap.position[2]];
+      // Debug: expose ghost snap state for e2e tests
+      (window as any).__ghostDebug = {
+        snapPos: snap.position,
+        yLift,
+        liftedSnapPos,
+        orient,
+        snapRotation,
+        cursorGrid: [...cursorGrid],
+        worldPos: gridToWorld(liftedSnapPos),
+      };
       setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
       setEffectiveRotation(snapRotation);
@@ -603,6 +613,15 @@ function GhostPreview({
 
   const worldPos = gridToWorld(gridPos);
   const displayRotation = effectiveRotation;
+
+  // Expose rendered state for e2e debugging
+  (window as any).__ghostRender = {
+    gridPos: [...gridPos],
+    worldPos: [...worldPos],
+    rotation: [...displayRotation],
+    orientation: effectiveOrientation,
+    isSnapped,
+  };
 
   return (
     <group name="ghost-preview" position={worldPos}>
