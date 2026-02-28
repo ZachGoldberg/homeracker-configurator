@@ -7,6 +7,7 @@ import {
   getWorldCells,
   rotateGridCells,
   rotateDirection,
+  rotateAxis,
 } from "./grid-utils";
 
 export interface SnapCandidate {
@@ -110,8 +111,8 @@ export function findSnapPoints(
       // Determine the axis the support needs to span
       const orientation = directionToAxis(rotatedDir);
 
-      // Skip if this socket is already occupied (not open for this support axis)
-      if (!assembly.isCellFreeForSupportAxis(adjacentCell, orientation)) continue;
+      // Skip if this socket is already occupied — don't snap onto filled cells
+      if (assembly.isOccupied(adjacentCell)) continue;
 
       // Compute the support origin position.
       let originPos: GridPosition;
@@ -128,15 +129,6 @@ export function findSnapPoints(
 
       const { distance, filterDist } = snapDistance(cursorGridPos, adjacentCell, ray);
       if (filterDist > maxDistance) continue;
-
-      // Verify all cells the support would occupy are free
-      const worldCells = getWorldCells(supportDef.gridCells, originPos, orientation);
-      const allFree = worldCells.every((cell) => {
-        if (cell[1] < 0) return false;
-        return assembly.isCellFreeForSupportAxis(cell, orientation);
-      });
-
-      if (!allFree) continue;
 
       candidates.push({
         position: originPos,
@@ -165,11 +157,40 @@ export function findConnectorSnapPoints(
   cursorGridPos: GridPosition,
   maxDistance: number = 3,
   ray?: GridRay,
+  connectorRotation?: Rotation3,
 ): SnapCandidate[] {
   const connectorDef = getPartDefinition(connectorDefId);
   if (!connectorDef) return [];
 
   const candidates: SnapCandidate[] = [];
+
+  // For pull-through connectors, also snap to mid-support positions
+  if (connectorDef.pullThroughAxis && connectorRotation) {
+    const effectivePtAxis = rotateAxis(connectorDef.pullThroughAxis, connectorRotation);
+    for (const part of assembly.getAllParts()) {
+      const partDef = getPartDefinition(part.definitionId);
+      if (!partDef || partDef.category !== "support") continue;
+      const supportOrientation: Axis = part.orientation ?? "y";
+      if (supportOrientation !== effectivePtAxis) continue;
+
+      const partRotation: Rotation3 = part.rotation ?? [0, 0, 0];
+      const rotatedCells = rotateGridCells(partDef.gridCells, partRotation);
+      const worldCells = getWorldCells(rotatedCells, part.position, supportOrientation);
+
+      for (const cell of worldCells) {
+        if (cell[1] < 0) continue;
+        const { distance, filterDist } = snapDistance(cursorGridPos, cell, ray);
+        if (filterDist > maxDistance) continue;
+        candidates.push({
+          position: cell,
+          orientation: "y",
+          connectorInstanceId: part.instanceId,
+          socketDirection: `+${effectivePtAxis}` as Direction,
+          distance,
+        });
+      }
+    }
+  }
 
   for (const part of assembly.getAllParts()) {
     const partDef = getPartDefinition(part.definitionId);
@@ -215,9 +236,8 @@ export function findConnectorSnapPoints(
       // Skip below-ground
       if (connectorPos[1] < 0) continue;
 
-      // Skip if position is already occupied (PT connectors can overlap supports, so skip this check for them)
-      const connDef = getPartDefinition(connectorDefId);
-      if (!connDef?.pullThroughAxis && assembly.isOccupied(connectorPos)) continue;
+      // Skip if position is already occupied — don't snap onto filled cells
+      if (assembly.isOccupied(connectorPos)) continue;
 
       const { distance, filterDist } = snapDistance(cursorGridPos, connectorPos, ray);
       if (filterDist > maxDistance) continue;
@@ -259,7 +279,8 @@ export function findBestConnectorSnap(
   cursorGridPos: GridPosition,
   snapRadius: number = 3,
   ray?: GridRay,
+  connectorRotation?: Rotation3,
 ): SnapCandidate | null {
-  const candidates = findConnectorSnapPoints(assembly, connectorDefId, cursorGridPos, snapRadius, ray);
+  const candidates = findConnectorSnapPoints(assembly, connectorDefId, cursorGridPos, snapRadius, ray, connectorRotation);
   return candidates.length > 0 ? candidates[0] : null;
 }

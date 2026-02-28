@@ -7,6 +7,7 @@ import {
   saveCustomPartsMeta,
   loadCustomPartsMeta,
   loadAllSTLBuffers,
+  deleteSTLBuffer,
   type CustomPartMeta,
 } from "./custom-parts-storage";
 
@@ -64,6 +65,21 @@ export function getCustomPartGeometry(defId: string): THREE.BufferGeometry | und
 /** Check if a definition ID is a custom imported part */
 export function isCustomPart(defId: string): boolean {
   return geometryStore.has(defId);
+}
+
+/** Delete a custom part from the library (geometry store, definitions, and persistence) */
+export async function deleteCustomPart(defId: string): Promise<void> {
+  const idx = customDefinitions.findIndex((d) => d.id === defId);
+  if (idx === -1) return;
+  customDefinitions.splice(idx, 1);
+  const geo = geometryStore.get(defId);
+  if (geo) {
+    geo.dispose();
+    geometryStore.delete(defId);
+  }
+  notify();
+  persistMeta();
+  try { await deleteSTLBuffer(defId); } catch { /* ignore */ }
 }
 
 let nextId = 1;

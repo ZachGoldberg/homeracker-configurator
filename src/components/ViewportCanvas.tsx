@@ -362,34 +362,30 @@ function nextStep(step: RotationStep): RotationStep {
 /** Ghost preview model — loads the actual GLB with a transparent tint */
 function GhostModel({
   definitionId,
-  valid,
   rotation,
   orientation,
   isSnapped,
 }: {
   definitionId: string;
-  valid: boolean;
   rotation: Rotation3;
   orientation?: Axis;
   isSnapped?: boolean;
 }) {
   if (isCustomPart(definitionId)) {
-    return <CustomGhostModel definitionId={definitionId} valid={valid} rotation={rotation} isSnapped={isSnapped} />;
+    return <CustomGhostModel definitionId={definitionId} rotation={rotation} isSnapped={isSnapped} />;
   }
 
-  return <GLBGhostModel definitionId={definitionId} valid={valid} rotation={rotation} orientation={orientation} isSnapped={isSnapped} />;
+  return <GLBGhostModel definitionId={definitionId} rotation={rotation} orientation={orientation} isSnapped={isSnapped} />;
 }
 
 /** Ghost preview for GLB-based parts */
 function GLBGhostModel({
   definitionId,
-  valid,
   rotation,
   orientation,
   isSnapped,
 }: {
   definitionId: string;
-  valid: boolean;
   rotation: Rotation3;
   orientation?: Axis;
   isSnapped?: boolean;
@@ -398,11 +394,7 @@ function GLBGhostModel({
   const { scene } = useGLTF(def.modelPath);
   const cloned = useMemo(() => scene.clone(), [scene]);
   const groupRef = useRef<THREE.Group>(null);
-  const color = !valid
-    ? PART_COLORS.ghost_invalid
-    : isSnapped
-      ? PART_COLORS.ghost_snapped
-      : PART_COLORS.ghost_valid;
+  const color = isSnapped ? PART_COLORS.ghost_snapped : PART_COLORS.ghost_valid;
 
   useEffect(() => {
     if (!groupRef.current) return;
@@ -443,12 +435,10 @@ function GLBGhostModel({
 /** Ghost preview for custom STL-imported parts */
 function CustomGhostModel({
   definitionId,
-  valid,
   rotation,
   isSnapped,
 }: {
   definitionId: string;
-  valid: boolean;
   rotation: Rotation3;
   isSnapped?: boolean;
 }) {
@@ -456,11 +446,7 @@ function CustomGhostModel({
   const geometry = getCustomPartGeometry(definitionId);
   if (!geometry) return null;
 
-  const color = !valid
-    ? PART_COLORS.ghost_invalid
-    : isSnapped
-      ? PART_COLORS.ghost_snapped
-      : PART_COLORS.ghost_valid;
+  const color = isSnapped ? PART_COLORS.ghost_snapped : PART_COLORS.ghost_valid;
 
   const euler = degreesToEuler(rotation);
   // Compute offset from rotated cells — placed outside rotation
@@ -479,7 +465,7 @@ function CustomGhostModel({
 }
 
 /** Fallback box while ghost GLB is loading */
-function GhostFallback({ definitionId, valid, orientation }: { definitionId: string; valid: boolean; orientation?: Axis }) {
+function GhostFallback({ definitionId, orientation }: { definitionId: string; orientation?: Axis }) {
   const def = getPartDefinition(definitionId);
   if (!def) return null;
 
@@ -503,7 +489,7 @@ function GhostFallback({ definitionId, valid, orientation }: { definitionId: str
     <mesh position={offset}>
       <boxGeometry args={[sizeX * 0.95, sizeY * 0.95, sizeZ * 0.95]} />
       <meshStandardMaterial
-        color={valid ? PART_COLORS.ghost_valid : PART_COLORS.ghost_invalid}
+        color={PART_COLORS.ghost_valid}
         transparent
         opacity={0.4}
         depthWrite={false}
@@ -516,7 +502,6 @@ function GhostFallback({ definitionId, valid, orientation }: { definitionId: str
 interface GhostState {
   position: GridPosition;
   orientation: Axis;
-  valid: boolean;
   rotation: Rotation3;
   isSnapped: boolean;
 }
@@ -541,7 +526,6 @@ function GhostPreview({
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>([0, 0, 0]);
-  const [valid, setValid] = useState(true);
   const [effectiveOrientation, setEffectiveOrientation] = useState<Axis>("y");
   const [effectiveRotation, setEffectiveRotation] = useState<Rotation3>([0, 0, 0]);
   const [isSnapped, setIsSnapped] = useState(false);
@@ -558,9 +542,6 @@ function GhostPreview({
     const cursorGrid = snapToGrid(intersectPoint);
     cursorGrid[1] = 0; // cursor is on ground plane
 
-    // Build grid-space ray for proximity-based snap filtering.
-    // When looking at elevated snap points (e.g. support top), the ground-plane
-    // cursor is displaced in XZ due to camera angle — the ray catches these cases.
     const gridRay: GridRay = {
       origin: [
         raycaster.ray.origin.x / BASE_UNIT,
@@ -578,27 +559,21 @@ function GhostPreview({
     const snap = snapEnabled
       ? (isSupport
         ? findBestSnap(assembly, definitionId, cursorGrid, 3, gridRay)
-        : findBestConnectorSnap(assembly, definitionId, cursorGrid, 3, gridRay))
+        : findBestConnectorSnap(assembly, definitionId, cursorGrid, 3, gridRay, ghostRotation))
       : null;
 
     if (snap) {
       const orient = isSupport ? snap.orientation : ghostOrientation;
-      // When snapping a support, the snap engine provides position + orientation.
-      // User rotation (R/T/F) would conflict, so override to identity for supports.
       const snapRotation: Rotation3 = isSupport ? [0, 0, 0] : ghostRotation;
-      // Auto-lift snapped position if rotation pushes geometry below ground
       const snapLift = def ? computeGroundLift(def, snapRotation, orient) : 0;
       const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift) + yLift, snap.position[2]];
-      const canPlaceSnapped = assembly.canPlace(definitionId, liftedSnapPos, snapRotation, orient);
       setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
       setEffectiveRotation(snapRotation);
-      setValid(canPlaceSnapped);
       setIsSnapped(true);
       ghostStateRef.current = {
         position: liftedSnapPos,
         orientation: orient,
-        valid: canPlaceSnapped,
         rotation: snapRotation,
         isSnapped: true,
       };
@@ -607,20 +582,16 @@ function GhostPreview({
 
     // No snap — use free placement with current orientation/rotation
     const orient = isSupport ? ghostOrientation : "y";
-    // Auto-lift if rotation pushes geometry below ground
     const lift = def ? computeGroundLift(def, ghostRotation, orient) : 0;
     cursorGrid[1] = lift + yLift;
-    const canPlace = assembly.canPlace(definitionId, cursorGrid, ghostRotation, orient);
 
     setEffectiveOrientation(orient);
     setEffectiveRotation(ghostRotation);
     setGridPos(cursorGrid);
-    setValid(canPlace);
     setIsSnapped(false);
     ghostStateRef.current = {
       position: cursorGrid,
       orientation: orient,
-      valid: canPlace,
       rotation: ghostRotation,
       isSnapped: false,
     };
@@ -633,8 +604,8 @@ function GhostPreview({
 
   return (
     <group name="ghost-preview" position={worldPos}>
-      <Suspense fallback={<GhostFallback definitionId={definitionId} valid={valid} orientation={effectiveOrientation} />}>
-        <GhostModel definitionId={definitionId} valid={valid} rotation={displayRotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
+      <Suspense fallback={<GhostFallback definitionId={definitionId} orientation={effectiveOrientation} />}>
+        <GhostModel definitionId={definitionId} rotation={displayRotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
       </Suspense>
     </group>
   );
@@ -650,13 +621,12 @@ function DragPreview({
 }: {
   dragState: DragState;
   assembly: AssemblyState;
-  dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>;
+  dropTargetRef: React.MutableRefObject<{ position: GridPosition; orientation?: Axis; rotation?: Rotation3 }>;
   yLift: number;
   snapEnabled: boolean;
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>(dragState.originalPosition);
-  const [valid, setValid] = useState(true);
   const [effectiveOrientation, setEffectiveOrientation] = useState<Axis>(dragState.orientation ?? "y");
   const [isSnapped, setIsSnapped] = useState(false);
   const intersectPoint = useMemo(() => new THREE.Vector3(), []);
@@ -720,18 +690,10 @@ function DragPreview({
       // Auto-lift snapped position if rotation pushes geometry below ground
       const snapLift = def ? computeGroundLift(def, dragState.rotation, orient) : 0;
       const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift) + yLift, snap.position[2]];
-      const canPlace = assembly.canPlaceIgnoring(
-        dragState.definitionId,
-        liftedSnapPos,
-        dragState.rotation,
-        dragState.instanceId,
-        orient,
-      );
       setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
-      setValid(canPlace);
       setIsSnapped(true);
-      dropTargetRef.current = { position: liftedSnapPos, valid: canPlace, orientation: orient, rotation: dragState.rotation };
+      dropTargetRef.current = { position: liftedSnapPos, orientation: orient, rotation: dragState.rotation };
       return;
     }
 
@@ -740,18 +702,10 @@ function DragPreview({
     // Auto-lift if rotation pushes geometry below ground
     const dragLift = def ? computeGroundLift(def, dragState.rotation, orient) : 0;
     cursorGrid[1] = dragLift + yLift;
-    const canPlace = assembly.canPlaceIgnoring(
-      dragState.definitionId,
-      cursorGrid,
-      dragState.rotation,
-      dragState.instanceId,
-      orient,
-    );
     setGridPos(cursorGrid);
     setEffectiveOrientation(orient);
-    setValid(canPlace);
     setIsSnapped(false);
-    dropTargetRef.current = { position: cursorGrid, valid: canPlace, orientation: orient, rotation: dragState.rotation };
+    dropTargetRef.current = { position: cursorGrid, orientation: orient, rotation: dragState.rotation };
   });
 
   if (!def) return null;
@@ -760,8 +714,8 @@ function DragPreview({
 
   return (
     <group name="drag-preview" position={worldPos}>
-      <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} valid={valid} orientation={effectiveOrientation} />}>
-        <GhostModel definitionId={dragState.definitionId} valid={valid} rotation={dragState.rotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
+      <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} orientation={effectiveOrientation} />}>
+        <GhostModel definitionId={dragState.definitionId} rotation={dragState.rotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
       </Suspense>
     </group>
   );
@@ -836,22 +790,18 @@ function FitCamera({ parts }: { parts: PlacedPart[] }) {
 /** Shared paste ghost state — written by PasteGhostPreview each frame, read by Scene on click */
 interface PasteGhostState {
   position: GridPosition;
-  allValid: boolean;
 }
 
 /** Ghost preview for paste mode — renders all clipboard parts at cursor position */
 function PasteGhostPreview({
   clipboard,
-  assembly,
   pasteStateRef,
 }: {
   clipboard: ClipboardData;
-  assembly: AssemblyState;
   pasteStateRef: React.MutableRefObject<PasteGhostState>;
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>([0, 0, 0]);
-  const [allValid, setAllValid] = useState(false);
   const groundPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
   const intersectPoint = useMemo(() => new THREE.Vector3(), []);
 
@@ -862,23 +812,8 @@ function PasteGhostPreview({
     const cursorGrid = snapToGrid(intersectPoint);
     cursorGrid[1] = 0;
 
-    // Check if ALL parts can be placed
-    let valid = true;
-    for (const cp of clipboard.parts) {
-      const pos: GridPosition = [
-        cursorGrid[0] + cp.offset[0],
-        cursorGrid[1] + cp.offset[1],
-        cursorGrid[2] + cp.offset[2],
-      ];
-      if (!assembly.canPlace(cp.definitionId, pos, cp.rotation, cp.orientation ?? "y")) {
-        valid = false;
-        break;
-      }
-    }
-
     setGridPos(cursorGrid);
-    setAllValid(valid);
-    pasteStateRef.current = { position: cursorGrid, allValid: valid };
+    pasteStateRef.current = { position: cursorGrid };
   });
 
   return (
@@ -892,8 +827,8 @@ function PasteGhostPreview({
         const worldPos = gridToWorld(pos);
         return (
           <group key={i} position={worldPos}>
-            <Suspense fallback={<GhostFallback definitionId={cp.definitionId} valid={allValid} orientation={cp.orientation} />}>
-              <GhostModel definitionId={cp.definitionId} valid={allValid} rotation={cp.rotation} orientation={cp.orientation} />
+            <Suspense fallback={<GhostFallback definitionId={cp.definitionId} orientation={cp.orientation} />}>
+              <GhostModel definitionId={cp.definitionId} rotation={cp.rotation} orientation={cp.orientation} />
             </Suspense>
           </group>
         );
@@ -908,7 +843,7 @@ interface SceneProps extends ViewportProps {
   ghostStateRef: React.MutableRefObject<GhostState>;
   pasteStateRef: React.MutableRefObject<PasteGhostState>;
   dragState: DragState | null;
-  dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>;
+  dropTargetRef: React.MutableRefObject<{ position: GridPosition; orientation?: Axis; rotation?: Rotation3 }>;
   onPartPointerDown: (instanceId: string, nativeEvent: PointerEvent) => void;
   yLift: number;
 }
@@ -941,15 +876,11 @@ function Scene({
       if (mode.type === "place") {
         e.stopPropagation();
         const gs = ghostStateRef.current;
-        if (gs.valid) {
-          onPlacePart(mode.definitionId, gs.position, gs.rotation, gs.orientation);
-        }
+        onPlacePart(mode.definitionId, gs.position, gs.rotation, gs.orientation);
       } else if (mode.type === "paste") {
         e.stopPropagation();
         const ps = pasteStateRef.current;
-        if (ps.allValid) {
-          onPasteParts(mode.clipboard, ps.position);
-        }
+        onPasteParts(mode.clipboard, ps.position);
       } else {
         onClickEmpty();
       }
@@ -1042,7 +973,6 @@ function Scene({
       {mode.type === "paste" && (
         <PasteGhostPreview
           clipboard={mode.clipboard}
-          assembly={assembly}
           pasteStateRef={pasteStateRef}
         />
       )}
@@ -1056,7 +986,6 @@ export function ViewportCanvas(props: ViewportProps) {
   const ghostStateRef = useRef<GhostState>({
     position: [0, 0, 0],
     orientation: "y",
-    valid: false,
     rotation: [0, 0, 0],
     isSnapped: false,
   });
@@ -1064,14 +993,12 @@ export function ViewportCanvas(props: ViewportProps) {
   // Paste state
   const pasteStateRef = useRef<PasteGhostState>({
     position: [0, 0, 0],
-    allValid: false,
   });
 
   // Drag state
   const [dragState, setDragState] = useState<DragState | null>(null);
-  const dropTargetRef = useRef<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>({
+  const dropTargetRef = useRef<{ position: GridPosition; orientation?: Axis; rotation?: Rotation3 }>({
     position: [0, 0, 0],
-    valid: false,
   });
   const pendingDragRef = useRef<{
     instanceId: string;
@@ -1150,9 +1077,7 @@ export function ViewportCanvas(props: ViewportProps) {
 
       if (dragState) {
         const target = dropTargetRef.current;
-        if (target.valid) {
-          props.onMovePart(dragState.instanceId, target.position, target.rotation, target.orientation);
-        }
+        props.onMovePart(dragState.instanceId, target.position, target.rotation, target.orientation);
         setDragState(null);
       } else {
         props.onClickPart(pending.instanceId, e.shiftKey);
@@ -1228,12 +1153,12 @@ export function ViewportCanvas(props: ViewportProps) {
   if (dragState) {
     const dragDef = getPartDefinition(dragState.definitionId);
     hintText = dragDef?.category === "support"
-      ? "R/F/T rotate · O orientation · W/S raise/lower · Release to place · Esc cancel"
-      : "R/F/T rotate · W/S raise/lower · Release to place · Esc cancel";
+      ? "T(X) R(Y) F(Z) rotate · O orientation · W/S raise/lower · Release to place · Esc cancel"
+      : "T(X) R(Y) F(Z) rotate · W/S raise/lower · Release to place · Esc cancel";
   } else if (props.mode.type === "place") {
     hintText = isPlacingSupport
-      ? "Click to place · R/F/T rotate · O orientation · W/S raise/lower · Esc cancel"
-      : "Click to place · R/F/T rotate · W/S raise/lower · Esc cancel";
+      ? "Click to place · T(X) R(Y) F(Z) rotate · O orientation · W/S raise/lower · Esc cancel"
+      : "Click to place · T(X) R(Y) F(Z) rotate · W/S raise/lower · Esc cancel";
   } else if (props.mode.type === "paste") {
     hintText = `Click to paste ${props.mode.clipboard.parts.length} part(s) · Esc cancel`;
   }

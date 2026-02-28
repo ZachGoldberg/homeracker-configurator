@@ -1244,6 +1244,126 @@ await page.evaluate(() => (window as any).__assembly.clear());
 await new Promise((r) => setTimeout(r, 200));
 
 // ──────────────────────────────────────────────
+// Test: Snap enable/disable toggle
+// ──────────────────────────────────────────────
+console.log("\n--- Test: Snap enable/disable ---");
+
+// Snap should be enabled by default
+const snapDefault = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  return a.snapEnabled;
+});
+assert("Snap is enabled by default", snapDefault === true);
+
+// Verify snap toggle button exists in toolbar
+const snapBtnExists = await page.evaluate(() => {
+  const buttons = document.querySelectorAll(".toolbar-btn");
+  for (const btn of buttons) {
+    if (btn.textContent?.trim().startsWith("Snap:")) return true;
+  }
+  return false;
+});
+assert("Snap toggle button exists in toolbar", snapBtnExists);
+
+// Verify button shows "Snap: On" initially
+const snapBtnText1 = await page.evaluate(() => {
+  const buttons = document.querySelectorAll(".toolbar-btn");
+  for (const btn of buttons) {
+    if (btn.textContent?.trim().startsWith("Snap:")) return btn.textContent?.trim() ?? "";
+  }
+  return "";
+});
+assert("Snap button says 'Snap: On' initially", snapBtnText1 === "Snap: On", `got: ${snapBtnText1}`);
+
+// Disable snap via the assembly API
+await page.evaluate(() => {
+  (window as any).__assembly.setSnapEnabled(false);
+});
+await new Promise((r) => setTimeout(r, 300));
+
+const snapDisabled = await page.evaluate(() => {
+  return (window as any).__assembly.snapEnabled;
+});
+assert("Snap disabled after setSnapEnabled(false)", snapDisabled === false);
+
+// Verify button text updated to "Snap: Off"
+const snapBtnText2 = await page.evaluate(() => {
+  const buttons = document.querySelectorAll(".toolbar-btn");
+  for (const btn of buttons) {
+    if (btn.textContent?.trim().startsWith("Snap:")) return btn.textContent?.trim() ?? "";
+  }
+  return "";
+});
+assert("Snap button says 'Snap: Off' after disable", snapBtnText2 === "Snap: Off", `got: ${snapBtnText2}`);
+
+// Verify button has active class when snap is OFF (indicating toggle is activated)
+const snapBtnActive = await page.evaluate(() => {
+  const buttons = document.querySelectorAll(".toolbar-btn");
+  for (const btn of buttons) {
+    if (btn.textContent?.trim().startsWith("Snap:")) return btn.classList.contains("toolbar-btn-active");
+  }
+  return false;
+});
+assert("Snap button has active class when snap is off", snapBtnActive);
+
+// Snap functions are still callable when snap is disabled (toggle is UI-only guard)
+const snapStillCallable = await page.evaluate(() => {
+  const a = (window as any).__assembly;
+  const snap = (window as any).__snap;
+  // Verify the functions exist and don't throw when snapEnabled is false
+  try {
+    a.clear();
+    a.addPart("connector-3d6w", [5, 0, 5]);
+    snap.findSnapPoints(a, "support-3u", [5, 0, 5], 5);
+    snap.findBestSnap(a, "support-3u", [5, 0, 5], 3);
+    snap.findConnectorSnapPoints(a, "connector-3d6w", [5, 0, 5], 3);
+    snap.findBestConnectorSnap(a, "connector-3d6w", [5, 0, 5], 3);
+    return true;
+  } catch {
+    return false;
+  }
+});
+assert("Snap functions callable when snap toggle is off (UI-only guard)", snapStillCallable);
+
+// Click the toolbar button to re-enable snap
+await page.evaluate(() => {
+  const buttons = document.querySelectorAll(".toolbar-btn");
+  for (const btn of buttons) {
+    if (btn.textContent?.trim().startsWith("Snap:")) {
+      (btn as HTMLElement).click();
+      return;
+    }
+  }
+});
+await new Promise((r) => setTimeout(r, 300));
+
+const snapReEnabled = await page.evaluate(() => {
+  return (window as any).__assembly.snapEnabled;
+});
+assert("Snap re-enabled after clicking toolbar button", snapReEnabled === true);
+
+const snapBtnText3 = await page.evaluate(() => {
+  const buttons = document.querySelectorAll(".toolbar-btn");
+  for (const btn of buttons) {
+    if (btn.textContent?.trim().startsWith("Snap:")) return btn.textContent?.trim() ?? "";
+  }
+  return "";
+});
+assert("Snap button says 'Snap: On' after re-enable", snapBtnText3 === "Snap: On", `got: ${snapBtnText3}`);
+
+// Verify snap setting persists to localStorage
+const snapPersisted = await page.evaluate(() => {
+  const raw = localStorage.getItem("homeracker-settings");
+  if (!raw) return null;
+  return JSON.parse(raw).snapEnabled;
+});
+assert("Snap setting persisted to localStorage", snapPersisted === true, `got: ${snapPersisted}`);
+
+// Clean up
+await page.evaluate(() => (window as any).__assembly.clear());
+await new Promise((r) => setTimeout(r, 200));
+
+// ──────────────────────────────────────────────
 // Test 11: No unexpected page errors
 // ──────────────────────────────────────────────
 console.log("\n--- Test: No page errors ---");

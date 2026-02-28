@@ -6,7 +6,6 @@ import { BOMPanel } from "./BOMPanel";
 import { AssemblyState } from "../assembly/AssemblyState";
 import { HistoryManager, type Command } from "../assembly/HistoryManager";
 import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3, ClipboardData } from "../types";
-import { getPartDefinition } from "../data/catalog";
 import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints } from "../assembly/snap";
 import { computeGroundLift } from "../assembly/grid-utils";
 import { restoreCustomParts, importSTL, isCustomPart } from "../data/custom-parts";
@@ -316,10 +315,6 @@ export function App() {
     input.click();
   }, []);
 
-  const handleToggleCustomCollision = useCallback(() => {
-    assembly.setCustomPartsSkipCollision(!assembly.customPartsSkipCollision);
-  }, []);
-
   const handleToggleSnap = useCallback(() => {
     assembly.setSnapEnabled(!assembly.snapEnabled);
   }, []);
@@ -354,9 +349,7 @@ export function App() {
           targetPosition[1] + cp.offset[1],
           targetPosition[2] + cp.offset[2],
         ];
-        if (assembly.canPlace(cp.definitionId, pos, cp.rotation, cp.orientation ?? "y")) {
-          addedParts.push({ definitionId: cp.definitionId, position: pos, rotation: cp.rotation, orientation: cp.orientation });
-        }
+        addedParts.push({ definitionId: cp.definitionId, position: pos, rotation: cp.rotation, orientation: cp.orientation });
       }
       if (addedParts.length === 0) return;
 
@@ -408,8 +401,6 @@ export function App() {
           onShare={handleShare}
           onEscape={handleEscape}
           mode={mode}
-          customCollisionOff={snapshot.customPartsSkipCollision}
-          onToggleCustomCollision={handleToggleCustomCollision}
           snapEnabled={snapshot.snapEnabled}
           onToggleSnap={handleToggleSnap}
         />

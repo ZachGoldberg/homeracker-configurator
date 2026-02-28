@@ -39,7 +39,7 @@ test.describe("Pull-through connector collision", () => {
     expect(supportId).toBeTruthy();
   });
 
-  test("PT connector is blocked when support axis does not match PT axis", async ({
+  test("PT connector allows support on any axis (not just matching PT axis)", async ({
     appPage: page,
   }) => {
     // Place a support at [0,0,0] oriented along X
@@ -49,12 +49,12 @@ test.describe("Pull-through connector collision", () => {
       return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "x");
     });
 
-    // Place a PT-Z connector at [0,0,0] — should fail (X support vs Z tunnel)
+    // Place a PT-Z connector at [0,0,0] — should succeed (PT allows any support through)
     const ptId = await page.evaluate(() => {
       const a = (window as any).__assembly;
       return a.addPart("connector-2d2w-pt-z", [0, 0, 0], [0, 0, 0]);
     });
-    expect(ptId).toBeNull();
+    expect(ptId).toBeTruthy();
   });
 
   test("regular connector is still blocked from overlapping supports", async ({
@@ -93,7 +93,7 @@ test.describe("Pull-through connector collision", () => {
     expect(ptId).toBeTruthy();
   });
 
-  test("PT connector rotation mismatch is still blocked", async ({
+  test("PT connector with rotation still allows any support through", async ({
     appPage: page,
   }) => {
     // Place a support along Y
@@ -103,11 +103,12 @@ test.describe("Pull-through connector collision", () => {
       return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "y");
     });
 
-    // PT-Z connector rotated 90° around Y → effective PT axis is X, not Y
+    // PT-Z connector rotated 90° around Y → effective PT axis is X
+    // But PT connectors allow any support through, so this should succeed
     const ptId = await page.evaluate(() => {
       const a = (window as any).__assembly;
       return a.addPart("connector-2d2w-pt-z", [0, 0, 0], [0, 90, 0]);
     });
-    expect(ptId).toBeNull();
+    expect(ptId).toBeTruthy();
   });
 });

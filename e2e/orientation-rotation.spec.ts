@@ -13,29 +13,29 @@ test.describe("Orientation-aware grid occupancy", () => {
     );
     expect(orientedId).not.toBeNull();
 
-    // Cell [1,0,0] should be occupied — use a connector without -Y arm at Y=0
-    const collisionAtX1 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-2d2w", [1, 0, 0])
+    // Cell [1,0,0] should be occupied
+    const occupied = await page.evaluate(() =>
+      (window as any).__assembly.isOccupied([1, 0, 0])
     );
-    expect(collisionAtX1).toBeNull();
+    expect(occupied).toBe(true);
 
     // Cell [2,0,0] should also be occupied
-    const collisionAtX2 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-2d2w", [2, 0, 0])
+    const occupied2 = await page.evaluate(() =>
+      (window as any).__assembly.isOccupied([2, 0, 0])
     );
-    expect(collisionAtX2).toBeNull();
+    expect(occupied2).toBe(true);
 
     // Cell [0,1,0] should be free
-    const freeAtY1 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-3d6w", [0, 1, 0])
+    const free1 = await page.evaluate(() =>
+      (window as any).__assembly.isOccupied([0, 1, 0])
     );
-    expect(freeAtY1).not.toBeNull();
+    expect(free1).toBe(false);
 
     // Cell [0,0,1] should also be free
-    const freeAtZ1 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-2d2w", [0, 0, 1])
+    const free2 = await page.evaluate(() =>
+      (window as any).__assembly.isOccupied([0, 0, 1])
     );
-    expect(freeAtZ1).not.toBeNull();
+    expect(free2).toBe(false);
   });
 
   test("z-oriented support occupies cells along Z axis", async ({
@@ -46,20 +46,20 @@ test.describe("Orientation-aware grid occupancy", () => {
     );
     expect(orientedZ).not.toBeNull();
 
-    const collisionAtZ1 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-2d2w", [0, 0, 1])
+    const occupiedZ1 = await page.evaluate(() =>
+      (window as any).__assembly.isOccupied([0, 0, 1])
     );
-    expect(collisionAtZ1).toBeNull();
+    expect(occupiedZ1).toBe(true);
 
-    const freeAtY1 = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-3d6w", [0, 1, 0])
+    const freeY1 = await page.evaluate(() =>
+      (window as any).__assembly.isOccupied([0, 1, 0])
     );
-    expect(freeAtY1).not.toBeNull();
+    expect(freeY1).toBe(false);
   });
 });
 
-test.describe("canPlace with orientation", () => {
-  test("validates placement considering orientation", async ({
+test.describe("Placement always succeeds (no collision)", () => {
+  test("parts can overlap freely", async ({
     appPage: page,
   }) => {
     const results = await page.evaluate(() => {
@@ -67,20 +67,25 @@ test.describe("canPlace with orientation", () => {
       a.clear();
       a.addPart("connector-3d6w", [3, 1, 0]);
 
+      // All placements succeed — no collision system
+      const id1 = a.addPart("support-3u", [0, 0, 0], [0, 0, 0], "y");
+      const id2 = a.addPart("support-3u", [0, 0, 0], [0, 0, 0], "x");
+      const id3 = a.addPart("support-3u", [1, 1, 0], [0, 0, 0], "x");
+
       return {
-        canPlaceY: a.canPlace("support-3u", [0, 0, 0], [0, 0, 0], "y"),
-        canPlaceX: a.canPlace("support-3u", [0, 0, 0], [0, 0, 0], "x"),
-        cannotPlaceXBlocked: a.canPlace("support-3u", [1, 1, 0], [0, 0, 0], "x"),
+        placed1: id1 !== null,
+        placed2: id2 !== null,
+        placed3: id3 !== null,
       };
     });
 
-    expect(results.canPlaceY).toBe(true);
-    expect(results.canPlaceX).toBe(true);
-    expect(results.cannotPlaceXBlocked).toBe(false);
+    expect(results.placed1).toBe(true);
+    expect(results.placed2).toBe(true);
+    expect(results.placed3).toBe(true);
   });
 });
 
-test.describe("Rotation-aware grid collision", () => {
+test.describe("Rotation-aware grid occupancy", () => {
   test("90° X rotation moves cells from Y to Z axis", async ({
     appPage: page,
   }) => {
@@ -97,17 +102,11 @@ test.describe("Rotation-aware grid collision", () => {
       const occupiedZ1 = a.isOccupied([0, 0, 1]);
       const occupiedZ2 = a.isOccupied([0, 0, 2]);
 
-      // Use connector-2d2w (no -Y arm) for collision checks at Y=0
-      const collidesZ1 = a.addPart("connector-2d2w", [0, 0, 1]);
-      const freeY1 = a.addPart("connector-3d6w", [0, 1, 0]);
-
       return {
         placed: id !== null,
         occupiedY1,
         occupiedZ1,
         occupiedZ2,
-        collidesZ1: collidesZ1 === null,
-        freeY1: freeY1 !== null,
       };
     });
 
@@ -115,30 +114,6 @@ test.describe("Rotation-aware grid collision", () => {
     expect(result.occupiedZ1).toBe(true);
     expect(result.occupiedZ2).toBe(true);
     expect(result.occupiedY1).toBe(false);
-    expect(result.collidesZ1).toBe(true);
-    expect(result.freeY1).toBe(true);
-  });
-});
-
-test.describe("Rotation blocks below-ground placement", () => {
-  test("180° X rotation at ground level is blocked", async ({
-    appPage: page,
-  }) => {
-    const result = await page.evaluate(() => {
-      const a = (window as any).__assembly;
-      a.clear();
-
-      // 90° X at ground: cells become [0,0,0],[0,0,1],[0,0,2] — all Y >= 0
-      const validRot = a.canPlace("support-3u", [0, 0, 0], [90, 0, 0]);
-
-      // 180° X at ground: [0,1,0] → [0,-1,0], [0,2,0] → [0,-2,0] — Y < 0
-      const blockedRot = a.canPlace("support-3u", [0, 0, 0], [180, 0, 0]);
-
-      return { validRot, blockedRot };
-    });
-
-    expect(result.validRot).toBe(true);
-    expect(result.blockedRot).toBe(false);
   });
 });
 
@@ -148,7 +123,6 @@ test.describe("Auto-lift: rotation pushes part above ground", () => {
   }) => {
     const results = await page.evaluate(() => {
       const lift = (window as any).__computeGroundLift;
-      const a = (window as any).__assembly;
 
       // Get support-3u definition (gridCells: [0,0,0],[0,1,0],[0,2,0])
       const def = { gridCells: [[0,0,0],[0,1,0],[0,2,0]], connectionPoints: [], category: "support" };
@@ -210,20 +184,12 @@ test.describe("Auto-lift: rotation pushes part above ground", () => {
       const a = (window as any).__assembly;
       a.clear();
 
-      // 180° X at Y=0: cells go to Y=-1,-2 → canPlace fails
-      const blockedAtGround = a.canPlace("support-3u", [0, 0, 0], [180, 0, 0]);
-
-      // At Y=2 (the lift value): cells become [0,2,0],[0,1,0],[0,0,0] → all Y >= 0
-      const okAtLifted = a.canPlace("support-3u", [0, 2, 0], [180, 0, 0]);
-
-      // Actually place it at the lifted position
+      // Actually place it at the lifted position — always succeeds now
       const placedId = a.addPart("support-3u", [0, 2, 0], [180, 0, 0]);
 
-      return { blockedAtGround, okAtLifted, placed: placedId !== null };
+      return { placed: placedId !== null };
     });
 
-    expect(result.blockedAtGround).toBe(false);
-    expect(result.okAtLifted).toBe(true);
     expect(result.placed).toBe(true);
   });
 });
