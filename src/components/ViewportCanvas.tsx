@@ -978,9 +978,10 @@ function Scene({
       <ExposeScene />
       <FitCamera parts={parts} />
       {/* Lighting */}
-      <ambientLight intensity={2.5} />
-      <directionalLight position={[100, 200, 100]} intensity={1.5} castShadow />
-      <directionalLight position={[-50, 100, -50]} intensity={0.8} />
+      <ambientLight intensity={3.5} />
+      <directionalLight position={[100, 200, 100]} intensity={1.8} castShadow />
+      <directionalLight position={[-50, 100, -50]} intensity={1.0} />
+      <directionalLight position={[0, -100, 50]} intensity={0.8} />
 
       {/* Camera controls — disabled during drag or box select */}
       <OrbitControls makeDefault enableDamping dampingFactor={0.1} enabled={!dragState && !boxSelectActive} />
@@ -1337,7 +1338,7 @@ export function ViewportCanvas(props: ViewportProps) {
       <Canvas
         camera={{ position: [150, 200, 150], fov: 50, near: 1, far: 10000 }}
         gl={{ antialias: true }}
-        scene={{ background: new THREE.Color("#2a2a4a") }}
+        scene={{ background: new THREE.Color("#3d3d5c") }}
       >
         <Scene
           {...props}
