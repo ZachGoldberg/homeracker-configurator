@@ -16,7 +16,7 @@
   --accent-blue: #0056b3;
   --danger: #c41e3a;
   --border: #2a2a4a;
-  --sidebar-width: 240px;
+  --sidebar-width: 280px;
   --bom-width: 260px;
   --toolbar-height: 44px;
 }
@@ -51,6 +51,25 @@ html, body, #root {
   border-right: 1px solid var(--border);
   overflow-y: auto;
   flex-shrink: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 .sidebar-header {
@@ -202,6 +221,13 @@ html, body, #root {
 .catalog-item-icon {
   font-size: 18px;
   font-weight: 700;
+}
+
+.catalog-item-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 3px;
 }
 
 .catalog-item-name {
@@ -378,4 +404,27 @@ html, body, #root {
   font-weight: 600;
   color: var(--accent);
   border-top: 2px solid var(--border);
+}
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: var(--text-primary);
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  z-index: 1000;
+  pointer-events: none;
+  animation: toast-fade 3s ease-in-out;
+}
+
+@keyframes toast-fade {
+  0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  80% { opacity: 1; transform: translateX(-50%) translateY(0); }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
 }

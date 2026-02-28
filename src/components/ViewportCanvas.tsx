@@ -3,7 +3,7 @@ import { OrbitControls, Grid, GizmoHelper, GizmoViewport, useGLTF } from "@react
 import { useCallback, useRef, useState, useEffect, useMemo, Suspense } from "react";
 import * as THREE from "three";
 import { BASE_UNIT, PART_COLORS, GRID_EXTENT } from "../constants";
-import type { PlacedPart, InteractionMode, GridPosition, Rotation3, RotationStep, Axis, DragState } from "../types";
+import type { PlacedPart, InteractionMode, GridPosition, Rotation3, RotationStep, Axis, DragState, ClipboardData } from "../types";
 import { getPartDefinition } from "../data/catalog";
 import { isCustomPart, getCustomPartGeometry } from "../data/custom-parts";
 import { AssemblyState } from "../assembly/AssemblyState";
@@ -13,13 +13,14 @@ import { findBestSnap, findBestConnectorSnap, type GridRay } from "../assembly/s
 interface ViewportProps {
   parts: PlacedPart[];
   mode: InteractionMode;
-  selectedPartId: string | null;
+  selectedPartIds: Set<string>;
   assembly: AssemblyState;
   onPlacePart: (definitionId: string, position: GridPosition, rotation: PlacedPart["rotation"], orientation?: Axis) => void;
   onMovePart: (instanceId: string, newPosition: GridPosition, rotation?: Rotation3, orientation?: Axis) => void;
-  onClickPart: (instanceId: string) => void;
+  onClickPart: (instanceId: string, shiftKey: boolean) => void;
   onClickEmpty: () => void;
-  onDeletePart: (instanceId: string) => void;
+  onDeleteSelected: () => void;
+  onPasteParts: (clipboard: ClipboardData, targetPosition: GridPosition) => void;
   onEscape: () => void;
 }
 
@@ -760,10 +761,80 @@ function FitCamera({ parts }: { parts: PlacedPart[] }) {
   return null;
 }
 
+/** Shared paste ghost state — written by PasteGhostPreview each frame, read by Scene on click */
+interface PasteGhostState {
+  position: GridPosition;
+  allValid: boolean;
+}
+
+/** Ghost preview for paste mode — renders all clipboard parts at cursor position */
+function PasteGhostPreview({
+  clipboard,
+  assembly,
+  pasteStateRef,
+}: {
+  clipboard: ClipboardData;
+  assembly: AssemblyState;
+  pasteStateRef: React.MutableRefObject<PasteGhostState>;
+}) {
+  const { camera, raycaster, pointer } = useThree();
+  const [gridPos, setGridPos] = useState<GridPosition>([0, 0, 0]);
+  const [allValid, setAllValid] = useState(false);
+  const groundPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
+  const intersectPoint = useMemo(() => new THREE.Vector3(), []);
+
+  useFrame(() => {
+    raycaster.setFromCamera(pointer, camera);
+    if (!raycaster.ray.intersectPlane(groundPlane, intersectPoint)) return;
+
+    const cursorGrid = snapToGrid(intersectPoint);
+    cursorGrid[1] = 0;
+
+    // Check if ALL parts can be placed
+    let valid = true;
+    for (const cp of clipboard.parts) {
+      const pos: GridPosition = [
+        cursorGrid[0] + cp.offset[0],
+        cursorGrid[1] + cp.offset[1],
+        cursorGrid[2] + cp.offset[2],
+      ];
+      if (!assembly.canPlace(cp.definitionId, pos, cp.rotation, cp.orientation ?? "y")) {
+        valid = false;
+        break;
+      }
+    }
+
+    setGridPos(cursorGrid);
+    setAllValid(valid);
+    pasteStateRef.current = { position: cursorGrid, allValid: valid };
+  });
+
+  return (
+    <group name="paste-preview">
+      {clipboard.parts.map((cp, i) => {
+        const pos: GridPosition = [
+          gridPos[0] + cp.offset[0],
+          gridPos[1] + cp.offset[1],
+          gridPos[2] + cp.offset[2],
+        ];
+        const worldPos = gridToWorld(pos);
+        return (
+          <group key={i} position={worldPos}>
+            <Suspense fallback={<GhostFallback definitionId={cp.definitionId} valid={allValid} orientation={cp.orientation} />}>
+              <GhostModel definitionId={cp.definitionId} valid={allValid} rotation={cp.rotation} orientation={cp.orientation} />
+            </Suspense>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
 interface SceneProps extends ViewportProps {
   ghostRotation: Rotation3;
   ghostOrientation: Axis;
   ghostStateRef: React.MutableRefObject<GhostState>;
+  pasteStateRef: React.MutableRefObject<PasteGhostState>;
   dragState: DragState | null;
   dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>;
   onPartPointerDown: (instanceId: string, nativeEvent: PointerEvent) => void;
@@ -774,13 +845,15 @@ interface SceneProps extends ViewportProps {
 function Scene({
   parts,
   mode,
-  selectedPartId,
+  selectedPartIds,
   assembly,
   onPlacePart,
+  onPasteParts,
   onClickEmpty,
   ghostRotation,
   ghostOrientation,
   ghostStateRef,
+  pasteStateRef,
   dragState,
   dropTargetRef,
   onPartPointerDown,
@@ -797,11 +870,17 @@ function Scene({
         if (gs.valid) {
           onPlacePart(mode.definitionId, gs.position, gs.rotation, gs.orientation);
         }
+      } else if (mode.type === "paste") {
+        e.stopPropagation();
+        const ps = pasteStateRef.current;
+        if (ps.allValid) {
+          onPasteParts(mode.clipboard, ps.position);
+        }
       } else {
         onClickEmpty();
       }
     },
-    [mode, onPlacePart, onClickEmpty, ghostStateRef, dragState]
+    [mode, onPlacePart, onPasteParts, onClickEmpty, ghostStateRef, pasteStateRef, dragState]
   );
 
   return (
@@ -853,7 +932,7 @@ function Scene({
         <PartMesh
           key={part.instanceId}
           part={part}
-          isSelected={part.instanceId === selectedPartId}
+          isSelected={selectedPartIds.has(part.instanceId)}
           isDragging={dragState?.instanceId === part.instanceId}
           isPlacing={mode.type === "place"}
           onPointerDown={(e) => onPartPointerDown(part.instanceId, e.nativeEvent)}
@@ -881,6 +960,15 @@ function Scene({
           yLift={yLift}
         />
       )}
+
+      {/* Paste preview */}
+      {mode.type === "paste" && (
+        <PasteGhostPreview
+          clipboard={mode.clipboard}
+          assembly={assembly}
+          pasteStateRef={pasteStateRef}
+        />
+      )}
     </>
   );
 }
@@ -894,6 +982,12 @@ export function ViewportCanvas(props: ViewportProps) {
     valid: false,
     rotation: [0, 0, 0],
     isSnapped: false,
+  });
+
+  // Paste state
+  const pasteStateRef = useRef<PasteGhostState>({
+    position: [0, 0, 0],
+    allValid: false,
   });
 
   // Drag state
@@ -973,7 +1067,7 @@ export function ViewportCanvas(props: ViewportProps) {
       }
     };
 
-    const handlePointerUp = () => {
+    const handlePointerUp = (e: PointerEvent) => {
       const pending = pendingDragRef.current;
       if (!pending) return;
 
@@ -984,7 +1078,7 @@ export function ViewportCanvas(props: ViewportProps) {
         }
         setDragState(null);
       } else {
-        props.onClickPart(pending.instanceId);
+        props.onClickPart(pending.instanceId, e.shiftKey);
       }
       pendingDragRef.current = null;
     };
@@ -1009,9 +1103,9 @@ export function ViewportCanvas(props: ViewportProps) {
         props.onEscape();
       } else if (
         (e.key === "Delete" || e.key === "Backspace") &&
-        props.selectedPartId
+        props.selectedPartIds.size > 0
       ) {
-        props.onDeletePart(props.selectedPartId);
+        props.onDeleteSelected();
       } else if (dragState) {
         const rotateDrag = (axis: 0 | 1 | 2) => {
           const next: Rotation3 = [...dragState.rotation];
@@ -1050,7 +1144,7 @@ export function ViewportCanvas(props: ViewportProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [props.onEscape, props.onDeletePart, props.selectedPartId, props.mode, isPlacingSupport, rotateAxis, dragState]);
+  }, [props.onEscape, props.onDeleteSelected, props.selectedPartIds, props.mode, isPlacingSupport, rotateAxis, dragState]);
 
   // Hint text
   let hintText: string | null = null;
@@ -1063,6 +1157,8 @@ export function ViewportCanvas(props: ViewportProps) {
     hintText = isPlacingSupport
       ? "Click to place · R/F/T rotate · O orientation · W/S raise/lower · Esc cancel"
       : "Click to place · R/F/T rotate · W/S raise/lower · Esc cancel";
+  } else if (props.mode.type === "paste") {
+    hintText = `Click to paste ${props.mode.clipboard.parts.length} part(s) · Esc cancel`;
   }
 
   return (
@@ -1080,6 +1176,7 @@ export function ViewportCanvas(props: ViewportProps) {
           ghostRotation={ghostRotation}
           ghostOrientation={ghostOrientation}
           ghostStateRef={ghostStateRef}
+          pasteStateRef={pasteStateRef}
           dragState={dragState}
           dropTargetRef={dropTargetRef}
           onPartPointerDown={handlePartPointerDown}

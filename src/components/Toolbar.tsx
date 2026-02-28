@@ -4,9 +4,11 @@ interface ToolbarProps {
   onUndo: () => void;
   onRedo: () => void;
   onDelete?: () => void;
+  selectedCount: number;
   onClear: () => void;
   onSave: () => void;
   onLoad: () => void;
+  onShare: () => void;
   onEscape: () => void;
   mode: InteractionMode;
   customCollisionOff: boolean;
@@ -17,9 +19,11 @@ export function Toolbar({
   onUndo,
   onRedo,
   onDelete,
+  selectedCount,
   onClear,
   onSave,
   onLoad,
+  onShare,
   onEscape,
   mode,
   customCollisionOff,
@@ -47,7 +51,7 @@ export function Toolbar({
             onClick={onDelete}
             title="Delete selected (Del)"
           >
-            Delete
+            Delete{selectedCount > 1 ? ` (${selectedCount})` : ""}
           </button>
         )}
         <button
@@ -66,6 +70,9 @@ export function Toolbar({
         <button className="toolbar-btn" onClick={onLoad} title="Load assembly">
           Load
         </button>
+        <button className="toolbar-btn" onClick={onShare} title="Copy shareable link">
+          Share
+        </button>
       </div>
 
       <div className="toolbar-group">
@@ -82,6 +89,17 @@ export function Toolbar({
         <div className="toolbar-group">
           <span className="toolbar-mode-label">
             Placing: {mode.definitionId}
+          </span>
+          <button className="toolbar-btn" onClick={onEscape}>
+            Cancel (Esc)
+          </button>
+        </div>
+      )}
+
+      {mode.type === "paste" && (
+        <div className="toolbar-group">
+          <span className="toolbar-mode-label">
+            Pasting {mode.clipboard.parts.length} part(s)
           </span>
           <button className="toolbar-btn" onClick={onEscape}>
             Cancel (Esc)

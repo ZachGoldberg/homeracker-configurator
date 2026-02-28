@@ -37,7 +37,7 @@ export const GRID_MAJOR_COLOR = "#666666";
 // Part colors for the 3D viewer
 export const PART_COLORS = {
   support: "#f7b600",    // HR_YELLOW
-  connector: "#0056b3",  // HR_BLUE
+  connector: "#2196f3",  // HR_BLUE (brightened for dark UI contrast)
   lockpin: "#c41e3a",    // HR_RED
   ghost_valid: "#44ff44",
   ghost_invalid: "#ff4444",

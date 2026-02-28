@@ -2,6 +2,7 @@ import { useState, useSyncExternalStore, useCallback } from "react";
 import { PART_CATALOG } from "../data/catalog";
 import { PART_COLORS } from "../constants";
 import { subscribeCustomParts, getCustomPartsSnapshot, importSTL } from "../data/custom-parts";
+import { useThumbnail } from "../thumbnails/useThumbnail";
 import type { InteractionMode, PartCategory, PartDefinition } from "../types";
 
 interface SidebarProps {
@@ -28,6 +29,7 @@ function getCategoryIcon(category: PartCategory): string {
 
 function PartButton({ part, isActive, onSelect }: { part: PartDefinition; isActive: boolean; onSelect: () => void }) {
   const color = PART_COLORS[part.category] || PART_COLORS.custom;
+  const thumbnail = useThumbnail(part);
   return (
     <button
       className={`catalog-item ${isActive ? "active" : ""}`}
@@ -37,13 +39,17 @@ function PartButton({ part, isActive, onSelect }: { part: PartDefinition; isActi
       <div
         className="catalog-item-preview"
         style={{
-          backgroundColor: color + "33",
+          backgroundColor: thumbnail ? "#d0d0d0" : color + "55",
           borderColor: color,
         }}
       >
-        <div className="catalog-item-icon" style={{ color }}>
-          {getCategoryIcon(part.category)}
-        </div>
+        {thumbnail ? (
+          <img src={thumbnail} alt={part.name} className="catalog-item-thumbnail" />
+        ) : (
+          <div className="catalog-item-icon" style={{ color }}>
+            {getCategoryIcon(part.category)}
+          </div>
+        )}
       </div>
       <span className="catalog-item-name">{part.name}</span>
     </button>

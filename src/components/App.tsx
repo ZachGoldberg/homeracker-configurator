@@ -5,11 +5,12 @@ import { Toolbar } from "./Toolbar";
 import { BOMPanel } from "./BOMPanel";
 import { AssemblyState } from "../assembly/AssemblyState";
 import { HistoryManager, type Command } from "../assembly/HistoryManager";
-import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3 } from "../types";
+import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3, ClipboardData } from "../types";
 import { getPartDefinition } from "../data/catalog";
 import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints } from "../assembly/snap";
 import { computeGroundLift } from "../assembly/grid-utils";
-import { restoreCustomParts, importSTL } from "../data/custom-parts";
+import { restoreCustomParts, importSTL, isCustomPart } from "../data/custom-parts";
+import { encodeAssemblyToHash, decodeAssemblyFromHash, hasCustomParts } from "../sharing/url-sharing";
 
 // Global singleton instances
 const assembly = new AssemblyState();
@@ -17,11 +18,20 @@ const history = new HistoryManager();
 
 const STORAGE_KEY = "homeracker-scene";
 
-// Restore custom parts (IndexedDB) THEN assembly (localStorage).
+// Restore custom parts (IndexedDB) THEN assembly (localStorage or URL hash).
 // Custom part definitions must exist before deserialize() resolves their IDs.
 const initPromise = restoreCustomParts()
   .catch(() => {}) // IndexedDB may be unavailable
-  .then(() => {
+  .then(async () => {
+    // URL hash takes priority over localStorage
+    if (location.hash.startsWith("#scene=")) {
+      const data = await decodeAssemblyFromHash(location.hash);
+      if (data) {
+        assembly.deserialize(data);
+        window.history.replaceState(null, "", location.pathname + location.search);
+        return;
+      }
+    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) assembly.deserialize(JSON.parse(saved));
@@ -48,7 +58,7 @@ assembly.subscribe(() => {
 export function App() {
   const [ready, setReady] = useState(false);
   const [mode, setMode] = useState<InteractionMode>({ type: "select" });
-  const [selectedPartId, setSelectedPartId] = useState<string | null>(null);
+  const [selectedPartIds, setSelectedPartIds] = useState<Set<string>>(new Set());
 
   // Wait for custom parts + assembly restore before rendering
   useEffect(() => {
@@ -63,7 +73,7 @@ export function App() {
 
   const handleSelectPart = useCallback((definitionId: string) => {
     setMode({ type: "place", definitionId });
-    setSelectedPartId(null);
+    setSelectedPartIds(new Set());
   }, []);
 
   const handlePlacePart = useCallback(
@@ -91,30 +101,28 @@ export function App() {
     []
   );
 
-  const handleDeletePart = useCallback(
-    (instanceId: string) => {
-      const part = assembly.getPartById(instanceId);
-      if (!part) return;
-      const saved = { ...part };
-      const cmd: Command = {
-        description: `Delete ${part.definitionId}`,
-        execute() {
-          assembly.removePart(instanceId);
-        },
-        undo() {
-          assembly.addPart(
-            saved.definitionId,
-            saved.position,
-            saved.rotation,
-            saved.orientation
-          );
-        },
-      };
-      history.execute(cmd);
-      if (selectedPartId === instanceId) setSelectedPartId(null);
-    },
-    [selectedPartId]
-  );
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedPartIds.size === 0) return;
+    const partsToDelete = [...selectedPartIds]
+      .map((id) => assembly.getPartById(id))
+      .filter((p): p is PlacedPart => !!p)
+      .map((p) => ({ ...p }));
+    if (partsToDelete.length === 0) return;
+
+    const cmd: Command = {
+      description: `Delete ${partsToDelete.length} part(s)`,
+      execute() {
+        for (const p of partsToDelete) assembly.removePart(p.instanceId);
+      },
+      undo() {
+        for (const p of partsToDelete) {
+          assembly.addPart(p.definitionId, p.position, p.rotation, p.orientation);
+        }
+      },
+    };
+    history.execute(cmd);
+    setSelectedPartIds(new Set());
+  }, [selectedPartIds]);
 
   const handleMovePart = useCallback(
     (instanceId: string, newPosition: GridPosition, newRotation?: PlacedPart["rotation"], newOrientation?: Axis) => {
@@ -167,27 +175,81 @@ export function App() {
   );
 
   const handleClickPart = useCallback(
-    (instanceId: string) => {
+    (instanceId: string, shiftKey: boolean) => {
       if (mode.type === "select") {
-        setSelectedPartId(instanceId === selectedPartId ? null : instanceId);
+        setSelectedPartIds((prev) => {
+          if (shiftKey) {
+            const next = new Set(prev);
+            if (next.has(instanceId)) next.delete(instanceId);
+            else next.add(instanceId);
+            return next;
+          }
+          // Toggle single selection
+          if (prev.size === 1 && prev.has(instanceId)) return new Set();
+          return new Set([instanceId]);
+        });
       }
     },
-    [mode, selectedPartId]
+    [mode]
   );
 
   const handleClickEmpty = useCallback(() => {
     if (mode.type === "select") {
-      setSelectedPartId(null);
+      setSelectedPartIds(new Set());
     }
   }, [mode]);
 
   const handleEscape = useCallback(() => {
     setMode({ type: "select" });
-    setSelectedPartId(null);
+    setSelectedPartIds(new Set());
   }, []);
 
   const handleUndo = useCallback(() => history.undo(), []);
   const handleRedo = useCallback(() => history.redo(), []);
+
+  const handleCopy = useCallback(() => {
+    if (selectedPartIds.size === 0) return;
+    const parts = [...selectedPartIds]
+      .map((id) => assembly.getPartById(id))
+      .filter((p): p is PlacedPart => !!p);
+    if (parts.length === 0) return;
+
+    const cx = parts.reduce((s, p) => s + p.position[0], 0) / parts.length;
+    const cy = parts.reduce((s, p) => s + p.position[1], 0) / parts.length;
+    const cz = parts.reduce((s, p) => s + p.position[2], 0) / parts.length;
+    const centerX = Math.round(cx);
+    const centerY = Math.round(cy);
+    const centerZ = Math.round(cz);
+
+    const clipboard: ClipboardData = {
+      parts: parts.map((p) => ({
+        definitionId: p.definitionId,
+        offset: [
+          p.position[0] - centerX,
+          p.position[1] - centerY,
+          p.position[2] - centerZ,
+        ] as GridPosition,
+        rotation: p.rotation,
+        orientation: p.orientation,
+      })),
+    };
+    navigator.clipboard.writeText(JSON.stringify({ homeracker: "clipboard", ...clipboard })).catch(() => {});
+    setToast(`Copied ${parts.length} part(s)`);
+    setTimeout(() => setToast(null), 2000);
+  }, [selectedPartIds]);
+
+  const handlePaste = useCallback(async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      const data = JSON.parse(text);
+      if (data?.homeracker !== "clipboard" || !Array.isArray(data.parts)) return;
+      const clipboard: ClipboardData = { parts: data.parts };
+      setMode({ type: "paste", clipboard });
+      setSelectedPartIds(new Set());
+    } catch {
+      // Not valid clipboard data — ignore
+    }
+  }, []);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -199,16 +261,22 @@ export function App() {
       ) {
         e.preventDefault();
         handleRedo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+        e.preventDefault();
+        handleCopy();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+        e.preventDefault();
+        handlePaste();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleUndo, handleRedo]);
+  }, [handleUndo, handleRedo, handleCopy, handlePaste]);
 
   const handleClear = useCallback(() => {
     assembly.clear();
     history.clear();
-    setSelectedPartId(null);
+    setSelectedPartIds(new Set());
   }, []);
 
   const handleSave = useCallback(() => {
@@ -236,7 +304,7 @@ export function App() {
         const data = JSON.parse(text);
         assembly.deserialize(data);
         history.clear();
-        setSelectedPartId(null);
+        setSelectedPartIds(new Set());
       } catch (e) {
         console.error("Failed to load assembly:", e);
       }
@@ -247,6 +315,71 @@ export function App() {
   const handleToggleCustomCollision = useCallback(() => {
     assembly.setCustomPartsSkipCollision(!assembly.customPartsSkipCollision);
   }, []);
+
+  const [toast, setToast] = useState<string | null>(null);
+
+  const handleShare = useCallback(async () => {
+    const data = assembly.serialize();
+    if (hasCustomParts(data)) {
+      data.parts = data.parts.filter((p) => !isCustomPart(p.type));
+      if (data.parts.length === 0) {
+        setToast("Nothing to share — custom STL parts can't be included in links");
+        setTimeout(() => setToast(null), 3000);
+        return;
+      }
+      setToast("Custom STL parts excluded from shared link");
+      setTimeout(() => setToast(null), 3000);
+    }
+    const hash = await encodeAssemblyToHash(data);
+    const url = location.origin + location.pathname + hash;
+    await navigator.clipboard.writeText(url);
+    setToast((prev) => prev ?? "Link copied to clipboard!");
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  const handlePasteParts = useCallback(
+    (clipboard: ClipboardData, targetPosition: GridPosition) => {
+      const addedParts: { definitionId: string; position: GridPosition; rotation: Rotation3; orientation?: Axis }[] = [];
+      for (const cp of clipboard.parts) {
+        const pos: GridPosition = [
+          targetPosition[0] + cp.offset[0],
+          targetPosition[1] + cp.offset[1],
+          targetPosition[2] + cp.offset[2],
+        ];
+        if (assembly.canPlace(cp.definitionId, pos, cp.rotation, cp.orientation ?? "y")) {
+          addedParts.push({ definitionId: cp.definitionId, position: pos, rotation: cp.rotation, orientation: cp.orientation });
+        }
+      }
+      if (addedParts.length === 0) return;
+
+      const cmd: Command = {
+        description: `Paste ${addedParts.length} part(s)`,
+        execute() {
+          for (const p of addedParts) {
+            assembly.addPart(p.definitionId, p.position, p.rotation, p.orientation);
+          }
+        },
+        undo() {
+          // Remove in reverse order
+          for (let i = addedParts.length - 1; i >= 0; i--) {
+            const p = addedParts[i];
+            const parts = assembly.getAllParts();
+            const match = parts.find(
+              (pp) =>
+                pp.definitionId === p.definitionId &&
+                pp.position[0] === p.position[0] &&
+                pp.position[1] === p.position[1] &&
+                pp.position[2] === p.position[2]
+            );
+            if (match) assembly.removePart(match.instanceId);
+          }
+        },
+      };
+      history.execute(cmd);
+      setMode({ type: "select" });
+    },
+    []
+  );
 
   const bom = assembly.getBOM();
 
@@ -259,12 +392,12 @@ export function App() {
         <Toolbar
           onUndo={handleUndo}
           onRedo={handleRedo}
-          onDelete={
-            selectedPartId ? () => handleDeletePart(selectedPartId) : undefined
-          }
+          onDelete={selectedPartIds.size > 0 ? handleDeleteSelected : undefined}
+          selectedCount={selectedPartIds.size}
           onClear={handleClear}
           onSave={handleSave}
           onLoad={handleLoad}
+          onShare={handleShare}
           onEscape={handleEscape}
           mode={mode}
           customCollisionOff={snapshot.customPartsSkipCollision}
@@ -273,17 +406,19 @@ export function App() {
         <ViewportCanvas
           parts={snapshot.parts}
           mode={mode}
-          selectedPartId={selectedPartId}
+          selectedPartIds={selectedPartIds}
           assembly={assembly}
           onPlacePart={handlePlacePart}
           onMovePart={handleMovePart}
           onClickPart={handleClickPart}
           onClickEmpty={handleClickEmpty}
-          onDeletePart={handleDeletePart}
+          onDeleteSelected={handleDeleteSelected}
+          onPasteParts={handlePasteParts}
           onEscape={handleEscape}
         />
       </div>
       <BOMPanel entries={bom} />
+      {toast && <div className="toast">{toast}</div>}
     </div>
   );
 }

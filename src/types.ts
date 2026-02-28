@@ -54,10 +54,24 @@ export interface PlacedPart {
   orientation?: Axis;
 }
 
+/** A part in the clipboard, with position relative to selection center */
+export interface ClipboardPart {
+  definitionId: string;
+  offset: GridPosition;
+  rotation: Rotation3;
+  orientation?: Axis;
+}
+
+/** Clipboard data for copy/paste */
+export interface ClipboardData {
+  parts: ClipboardPart[];
+}
+
 /** Interaction mode */
 export type InteractionMode =
   | { type: "select" }
-  | { type: "place"; definitionId: string };
+  | { type: "place"; definitionId: string }
+  | { type: "paste"; clipboard: ClipboardData };
 
 /** State for a part being dragged */
 export interface DragState {
