@@ -1,11 +1,13 @@
 import type { BOMEntry, PlacedPart } from "../types";
 import { getPartDefinition } from "../data/catalog";
+import { ColorPicker } from "./ColorPicker";
 
 interface BOMPanelProps {
   entries: BOMEntry[];
   selectedPartIds: Set<string>;
   parts: PlacedPart[];
   onFlashPart: (instanceId: string) => void;
+  onSetColor: (color: string | undefined) => void;
 }
 
 function exportCSV(entries: BOMEntry[]) {
@@ -23,10 +25,15 @@ function exportCSV(entries: BOMEntry[]) {
   URL.revokeObjectURL(url);
 }
 
-export function BOMPanel({ entries, selectedPartIds, parts, onFlashPart }: BOMPanelProps) {
+export function BOMPanel({ entries, selectedPartIds, parts, onFlashPart, onSetColor }: BOMPanelProps) {
   const totalParts = entries.reduce((sum, e) => sum + e.quantity, 0);
 
   const selectedParts = parts.filter((p) => selectedPartIds.has(p.instanceId));
+
+  // If all selected parts share the same color, show it; otherwise null (mixed)
+  const currentColor = selectedParts.length > 0
+    ? (selectedParts.every((p) => p.color === selectedParts[0].color) ? (selectedParts[0].color ?? null) : null)
+    : null;
 
   return (
     <div className="bom-panel">
@@ -73,6 +80,7 @@ export function BOMPanel({ entries, selectedPartIds, parts, onFlashPart }: BOMPa
       {selectedParts.length > 0 && (
         <div className="selection-panel">
           <h3>Selected ({selectedParts.length})</h3>
+          <ColorPicker currentColor={currentColor} onColorChange={onSetColor} />
           <ul className="selection-list">
             {selectedParts.map((p) => {
               const def = getPartDefinition(p.definitionId);

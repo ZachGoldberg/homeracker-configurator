@@ -16,7 +16,10 @@ test.describe("FitCamera on load", () => {
     // Reload — parts persist via localStorage, FitCamera runs on mount
     await page.reload();
     await page.waitForSelector(".app", { timeout: 10_000 });
-    await page.waitForTimeout(2000); // Allow R3F + FitCamera to run
+    await page.waitForFunction(
+      () => !!(window as any).__controls?.target && !!(window as any).__camera,
+      { timeout: 10_000 },
+    );
 
     const result = await page.evaluate(() => {
       const controls = (window as any).__controls;
@@ -55,7 +58,10 @@ test.describe("FitCamera on load", () => {
 
     await page.reload();
     await page.waitForSelector(".app", { timeout: 10_000 });
-    await page.waitForTimeout(2000);
+    await page.waitForFunction(
+      () => !!(window as any).__controls?.target,
+      { timeout: 10_000 },
+    );
 
     const result = await page.evaluate(() => {
       const controls = (window as any).__controls;

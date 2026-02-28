@@ -15,7 +15,6 @@ test.describe("BOM lock pin calculation with cuberack fixture", () => {
       };
       a.deserialize(filtered);
     }, cuberack);
-    await page.waitForTimeout(500);
 
     // Get BOM via assembly API
     const bom = await page.evaluate(() => {

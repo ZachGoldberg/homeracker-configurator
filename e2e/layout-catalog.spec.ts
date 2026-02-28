@@ -102,7 +102,10 @@ test.describe("Placement mode", () => {
   test("Escape exits placement mode", async ({ appPage: page }) => {
     await clickCatalogItem(page, "3D 6-Way");
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
+    await page.waitForFunction(
+      () => !document.querySelector(".catalog-item.active"),
+      { timeout: 3_000 },
+    );
 
     const afterEscape = await page.evaluate(() => {
       const items = document.querySelectorAll(".catalog-item");
@@ -177,7 +180,10 @@ test.describe("Ghost preview", () => {
     }
 
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.waitForFunction(
+      () => !document.querySelector(".viewport")?.getAttribute("data-placing"),
+      { timeout: 3_000 },
+    );
     const noGhost = await page.evaluate(
       () =>
         document.querySelector(".viewport")?.getAttribute("data-placing") ??

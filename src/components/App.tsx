@@ -122,7 +122,7 @@ export function App() {
       },
       undo() {
         for (const p of partsToDelete) {
-          assembly.addPart(p.definitionId, p.position, p.rotation, p.orientation);
+          assembly.addPart(p.definitionId, p.position, p.rotation, p.orientation, p.color);
         }
       },
     };
@@ -151,13 +151,14 @@ export function App() {
       const oldPosition = part.position;
       const oldRotation = part.rotation;
       const oldOrientation = part.orientation;
+      const oldColor = part.color;
       const definitionId = part.definitionId;
 
       const cmd: Command = {
         description: `Move ${definitionId}`,
         execute() {
           assembly.removePart(instanceId);
-          assembly.addPart(definitionId, newPosition, rotation, orientation);
+          assembly.addPart(definitionId, newPosition, rotation, orientation, oldColor);
         },
         undo() {
           // Find the part at the new position and move it back
@@ -171,7 +172,7 @@ export function App() {
           );
           if (match) {
             assembly.removePart(match.instanceId);
-            assembly.addPart(definitionId, oldPosition, oldRotation, oldOrientation);
+            assembly.addPart(definitionId, oldPosition, oldRotation, oldOrientation, oldColor);
           }
         },
       };
@@ -193,7 +194,7 @@ export function App() {
       if (delta[0] === 0 && delta[1] === 0 && delta[2] === 0 && !newRotation && !newOrientation) return;
 
       // Snapshot all selected parts before moving
-      const partsToMove: { id: string; def: string; oldPos: GridPosition; oldRot: Rotation3; oldOrient?: Axis; newPos: GridPosition; newRot: Rotation3; newOrient?: Axis }[] = [];
+      const partsToMove: { id: string; def: string; oldPos: GridPosition; oldRot: Rotation3; oldOrient?: Axis; color?: string; newPos: GridPosition; newRot: Rotation3; newOrient?: Axis }[] = [];
       for (const id of selectedPartIds) {
         const part = assembly.getPartById(id);
         if (!part) continue;
@@ -204,6 +205,7 @@ export function App() {
           oldPos: part.position,
           oldRot: part.rotation,
           oldOrient: part.orientation,
+          color: part.color,
           newPos: isPrimary ? newPosition : [part.position[0] + delta[0], part.position[1] + delta[1], part.position[2] + delta[2]],
           newRot: isPrimary ? (newRotation ?? part.rotation) : part.rotation,
           newOrient: isPrimary ? (newOrientation ?? part.orientation) : part.orientation,
@@ -215,7 +217,7 @@ export function App() {
         execute() {
           // Remove all first, then re-add at new positions (avoids collision with each other)
           for (const p of partsToMove) assembly.removePart(p.id);
-          for (const p of partsToMove) assembly.addPart(p.def, p.newPos, p.newRot, p.newOrient);
+          for (const p of partsToMove) assembly.addPart(p.def, p.newPos, p.newRot, p.newOrient, p.color);
         },
         undo() {
           // Remove parts at new positions, re-add at old positions
@@ -227,7 +229,7 @@ export function App() {
             );
             if (match) assembly.removePart(match.instanceId);
           }
-          for (const p of partsToMove) assembly.addPart(p.def, p.oldPos, p.oldRot, p.oldOrient);
+          for (const p of partsToMove) assembly.addPart(p.def, p.oldPos, p.oldRot, p.oldOrient, p.color);
         },
       };
       history.execute(cmd);
@@ -298,6 +300,7 @@ export function App() {
         ] as GridPosition,
         rotation: p.rotation,
         orientation: p.orientation,
+        color: p.color,
       })),
     };
     navigator.clipboard.writeText(JSON.stringify({ homeracker: "clipboard", ...clipboard })).catch(() => {});
@@ -406,14 +409,14 @@ export function App() {
 
   const handlePasteParts = useCallback(
     (clipboard: ClipboardData, targetPosition: GridPosition) => {
-      const addedParts: { definitionId: string; position: GridPosition; rotation: Rotation3; orientation?: Axis }[] = [];
+      const addedParts: { definitionId: string; position: GridPosition; rotation: Rotation3; orientation?: Axis; color?: string }[] = [];
       for (const cp of clipboard.parts) {
         const pos: GridPosition = [
           targetPosition[0] + cp.offset[0],
           targetPosition[1] + cp.offset[1],
           targetPosition[2] + cp.offset[2],
         ];
-        addedParts.push({ definitionId: cp.definitionId, position: pos, rotation: cp.rotation, orientation: cp.orientation });
+        addedParts.push({ definitionId: cp.definitionId, position: pos, rotation: cp.rotation, orientation: cp.orientation, color: cp.color });
       }
       if (addedParts.length === 0) return;
 
@@ -421,7 +424,7 @@ export function App() {
         description: `Paste ${addedParts.length} part(s)`,
         execute() {
           for (const p of addedParts) {
-            assembly.addPart(p.definitionId, p.position, p.rotation, p.orientation);
+            assembly.addPart(p.definitionId, p.position, p.rotation, p.orientation, p.color);
           }
         },
         undo() {
@@ -444,6 +447,37 @@ export function App() {
       setMode({ type: "select" });
     },
     []
+  );
+
+  const handleSetColor = useCallback(
+    (color: string | undefined) => {
+      if (selectedPartIds.size === 0) return;
+
+      const colorChanges: Array<{ instanceId: string; oldColor: string | undefined }> = [];
+      for (const id of selectedPartIds) {
+        const part = assembly.getPartById(id);
+        if (part) {
+          colorChanges.push({ instanceId: id, oldColor: part.color });
+        }
+      }
+      if (colorChanges.length === 0) return;
+
+      const ids = colorChanges.map((c) => c.instanceId);
+
+      const cmd: Command = {
+        description: `Color ${colorChanges.length} part(s)`,
+        execute() {
+          assembly.setPartsColor(ids, color);
+        },
+        undo() {
+          for (const { instanceId, oldColor } of colorChanges) {
+            assembly.setPartColor(instanceId, oldColor);
+          }
+        },
+      };
+      history.execute(cmd);
+    },
+    [selectedPartIds]
   );
 
   const bom = assembly.getBOM();
@@ -486,7 +520,7 @@ export function App() {
           snapEnabled={snapshot.snapEnabled}
         />
       </div>
-      <BOMPanel entries={bom} selectedPartIds={selectedPartIds} parts={snapshot.parts} onFlashPart={handleFlashPart} />
+      <BOMPanel entries={bom} selectedPartIds={selectedPartIds} parts={snapshot.parts} onFlashPart={handleFlashPart} onSetColor={handleSetColor} />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

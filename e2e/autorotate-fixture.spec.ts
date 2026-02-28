@@ -27,7 +27,6 @@ test.describe("Autorotate fixture: connector snap Y-height", () => {
       const a = (window as any).__assembly;
       a.deserialize(data);
     }, filteredFixture);
-    await page.waitForTimeout(200);
   });
 
   test("connector snaps to correct Y at junction [0,15,-3]", async ({

@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures";
+import { test, expect, waitForBOM } from "./fixtures";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -262,7 +262,6 @@ function crc32(data: Uint8Array): number {
 test.describe("3MF import", () => {
   test.beforeEach(async ({ appPage: page }) => {
     await page.evaluate(() => (window as any).__assembly.clear());
-    await page.waitForTimeout(200);
   });
 
   test("import a single-object 3MF and place it", async ({ appPage: page }) => {
@@ -286,7 +285,7 @@ test.describe("3MF import", () => {
     expect(placed).not.toBeNull();
 
     // Verify it appears in the BOM
-    await page.waitForTimeout(500);
+    await waitForBOM(page, 1);
     const bom = await page.evaluate(() => {
       const rows = document.querySelectorAll(".bom-table tbody tr");
       return Array.from(rows).map((row) => ({

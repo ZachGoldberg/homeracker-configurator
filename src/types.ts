@@ -56,6 +56,8 @@ export interface PlacedPart {
   rotation: Rotation3;
   /** For supports: which axis the beam spans */
   orientation?: Axis;
+  /** Optional color override (hex string, e.g. "#ff0000"). undefined = use category default. */
+  color?: string;
 }
 
 /** A part in the clipboard, with position relative to selection center */
@@ -64,6 +66,7 @@ export interface ClipboardPart {
   offset: GridPosition;
   rotation: Rotation3;
   orientation?: Axis;
+  color?: string;
 }
 
 /** Clipboard data for copy/paste */
@@ -103,5 +106,6 @@ export interface AssemblyFile {
     position: GridPosition;
     rotation: [number, number, number];
     orientation?: Axis;
+    color?: string;
   }>;
 }

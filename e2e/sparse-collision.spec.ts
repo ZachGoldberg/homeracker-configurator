@@ -42,7 +42,6 @@ function createSparseSTL(): ArrayBuffer {
 test.describe("Sparse collision: perpendicular supports can cross", () => {
   test.beforeEach(async ({ appPage: page }) => {
     await page.evaluate(() => (window as any).__assembly.clear());
-    await page.waitForTimeout(200);
   });
 
   test("vertical and horizontal supports can share a cell", async ({

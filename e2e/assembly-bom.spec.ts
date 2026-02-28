@@ -1,4 +1,4 @@
-import { test, expect, clickCatalogItem, getBBox } from "./fixtures";
+import { test, expect, clickCatalogItem, getBBox, waitForMesh, waitForBOM } from "./fixtures";
 
 test.describe("No geometry below ground (Y=0)", () => {
   test("connector-3d6w can be placed at Y=0 (no collision system)", async ({
@@ -20,7 +20,7 @@ test.describe("No geometry below ground (Y=0)", () => {
       (window as any).__assembly.addPart("connector-3d6w", [0, 1, 0])
     );
     expect(id).not.toBeNull();
-    await page.waitForTimeout(3000);
+    await waitForMesh(page, `placed-${id}`);
 
     const bbox = await getBBox(page, `placed-${id}`);
     expect(bbox).not.toBeNull();
@@ -35,7 +35,7 @@ test.describe("No geometry below ground (Y=0)", () => {
       (window as any).__assembly.addPart("support-3u", [0, 0, 0])
     );
     expect(id).not.toBeNull();
-    await page.waitForTimeout(3000);
+    await waitForMesh(page, `placed-${id}`);
 
     const bbox = await getBBox(page, `placed-${id}`);
     expect(bbox).not.toBeNull();
@@ -50,7 +50,7 @@ test.describe("No geometry below ground (Y=0)", () => {
       (window as any).__assembly.addPart("support-5u", [0, 0, 0], [0, 0, 0], "x")
     );
     expect(id).not.toBeNull();
-    await page.waitForTimeout(3000);
+    await waitForMesh(page, `placed-${id}`);
 
     const bbox = await getBBox(page, `placed-${id}`);
     expect(bbox).not.toBeNull();
@@ -83,7 +83,6 @@ test.describe("No geometry below ground (Y=0)", () => {
 test.describe("Place parts and BOM", () => {
   test.beforeEach(async ({ appPage: page }) => {
     await page.evaluate(() => (window as any).__assembly.clear());
-    await page.waitForTimeout(200);
   });
 
   test("place connector and verify BOM", async ({ appPage: page }) => {
@@ -91,7 +90,7 @@ test.describe("Place parts and BOM", () => {
       (window as any).__assembly.addPart("connector-3d6w", [0, 1, 0])
     );
     expect(placed1).not.toBeNull();
-    await page.waitForTimeout(500);
+    await waitForBOM(page, 1);
 
     const bom1 = await page.evaluate(() => {
       const rows = document.querySelectorAll(".bom-table tbody tr");
@@ -114,7 +113,7 @@ test.describe("Place parts and BOM", () => {
       a.addPart("connector-3d6w", [0, 1, 0]);
       a.addPart("connector-3d6w", [1, 1, 0]);
     });
-    await page.waitForTimeout(500);
+    await waitForBOM(page, 1);
 
     const bom = await page.evaluate(() => {
       const rows = document.querySelectorAll(".bom-table tbody tr");
@@ -136,7 +135,7 @@ test.describe("Place parts and BOM", () => {
       a.addPart("connector-3d6w", [1, 1, 0]);
       a.addPart("support-3u", [0, 2, 0]);
     });
-    await page.waitForTimeout(500);
+    await waitForBOM(page, 2);
 
     const bom = await page.evaluate(() => {
       const rows = document.querySelectorAll(".bom-table tbody tr");
@@ -157,7 +156,7 @@ test.describe("Place parts and BOM", () => {
       a.addPart("connector-3d6w", [1, 1, 0]);
       a.addPart("support-3u", [0, 2, 0]);
     });
-    await page.waitForTimeout(500);
+    await waitForBOM(page, 2);
 
     const totalText = await page.evaluate(
       () => document.querySelector(".bom-total")?.textContent?.trim() ?? ""
@@ -173,7 +172,7 @@ test.describe("Place parts and BOM", () => {
       a.addPart("connector-3d6w", [0, 1, 0]);
       a.addPart("support-3u", [1, 1, 0], [0, 0, 0], "x");
     });
-    await page.waitForTimeout(500);
+    await waitForBOM(page, 1);
 
     const bom = await page.evaluate(() => {
       const rows = document.querySelectorAll(".bom-table tbody tr");
@@ -208,7 +207,7 @@ test.describe("Clear All", () => {
       a.clear();
       a.addPart("connector-2d4w", [0, 0, 0]);
     });
-    await page.waitForTimeout(300);
+    await waitForBOM(page, 1);
 
     // Click Clear All button
     await page.evaluate(() => {
@@ -220,7 +219,10 @@ test.describe("Clear All", () => {
         }
       }
     });
-    await page.waitForTimeout(500);
+    await page.waitForFunction(
+      () => (window as any).__assembly.getAllParts().length === 0,
+      { timeout: 3_000 },
+    );
 
     const afterClear = await page.evaluate(() => {
       const emptyMsg = document.querySelector(".bom-empty");
@@ -245,7 +247,6 @@ test.describe("Clear All", () => {
       a.addPart("connector-2d4w", [0, 0, 0]);
       a.clear();
     });
-    await page.waitForTimeout(200);
 
     const result = await page.evaluate(() =>
       (window as any).__assembly.addPart("connector-2d4w", [0, 0, 0])
@@ -280,7 +281,7 @@ test.describe("Placed part orientation matches ghost", () => {
 
     // Enter placement mode for support-3u
     await clickCatalogItem(page, "Support (3u)");
-    await page.waitForTimeout(1000);
+    await waitForMesh(page, "ghost-preview");
 
     const ghostBBox = await getBBox(page, "ghost-preview");
     expect(ghostBBox).not.toBeNull();
@@ -290,15 +291,17 @@ test.describe("Placed part orientation matches ghost", () => {
 
     // Exit and place via API
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(200);
+    await page.waitForFunction(
+      () => !document.querySelector(".catalog-item.active"),
+      { timeout: 3_000 },
+    );
 
     const supportId = await page.evaluate(() =>
       (window as any).__assembly.addPart("support-3u", [0, 0, 0])
     );
     expect(supportId).not.toBeNull();
 
-    // Wait for GLB model to load
-    await page.waitForTimeout(3000);
+    await waitForMesh(page, `placed-${supportId}`);
 
     const placedBBox = await getBBox(page, `placed-${supportId}`);
     expect(placedBBox).not.toBeNull();

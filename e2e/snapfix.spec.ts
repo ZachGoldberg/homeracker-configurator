@@ -25,7 +25,6 @@ test.describe("Snapfix: support placement through PT connector", () => {
       const a = (window as any).__assembly;
       a.deserialize(data);
     }, fixtureWithoutLast);
-    await page.waitForTimeout(200);
   });
 
   test("findBestSnap near PT connector returns valid placeable candidate", async ({

@@ -536,6 +536,120 @@
     border-bottom: none;
   }
 
+  /* Color Picker */
+  .color-picker {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .color-picker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+
+  .color-picker-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+  }
+
+  .color-picker-reset {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .color-picker-reset:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+  }
+
+  .color-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+
+  .color-swatch {
+    width: 22px;
+    height: 22px;
+    border: 2px solid transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s;
+    padding: 0;
+  }
+
+  .color-swatch:hover {
+    border-color: var(--text-primary);
+    transform: scale(1.15);
+  }
+
+  .color-swatch.active {
+    border-color: #fff;
+    box-shadow: 0 0 0 1px var(--bg-primary);
+  }
+
+  .color-custom-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .color-preview {
+    width: 22px;
+    height: 22px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .color-hex-input {
+    flex: 1;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-size: 11px;
+    color: var(--text-primary);
+    font-family: monospace;
+    outline: none;
+    min-width: 0;
+  }
+
+  .color-hex-input:focus {
+    border-color: var(--accent);
+  }
+
+  .color-hex-input::placeholder {
+    color: var(--text-secondary);
+  }
+
+  .color-apply-btn {
+    background: var(--bg-tertiary, #1e2a4a);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .color-apply-btn:hover {
+    background: var(--accent-blue);
+  }
+
   /* Toast notification */
   .toast {
     position: fixed;

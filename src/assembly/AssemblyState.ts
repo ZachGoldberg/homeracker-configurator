@@ -102,7 +102,8 @@ export class AssemblyState {
     definitionId: string,
     position: GridPosition,
     rotation: PlacedPart["rotation"] = [0, 0, 0],
-    orientation?: PlacedPart["orientation"]
+    orientation?: PlacedPart["orientation"],
+    color?: string,
   ): string | null {
     const def = getPartDefinition(definitionId);
     if (!def) return null;
@@ -114,6 +115,7 @@ export class AssemblyState {
       position,
       rotation,
       orientation,
+      color,
     };
 
     this.parts.set(instanceId, part);
@@ -157,6 +159,35 @@ export class AssemblyState {
     this.parts.delete(instanceId);
     this.notify();
     return part;
+  }
+
+  /** Set the color override for a single part. Pass undefined to reset to default. */
+  setPartColor(instanceId: string, color: string | undefined): boolean {
+    const part = this.parts.get(instanceId);
+    if (!part) return false;
+    if (color === undefined) {
+      delete part.color;
+    } else {
+      part.color = color;
+    }
+    this.notify();
+    return true;
+  }
+
+  /** Set color for multiple parts at once (single notification). */
+  setPartsColor(instanceIds: string[], color: string | undefined): void {
+    let changed = false;
+    for (const id of instanceIds) {
+      const part = this.parts.get(id);
+      if (!part) continue;
+      if (color === undefined) {
+        delete part.color;
+      } else {
+        part.color = color;
+      }
+      changed = true;
+    }
+    if (changed) this.notify();
   }
 
   /** Clear all parts */
@@ -229,6 +260,7 @@ export class AssemblyState {
         position: p.position,
         rotation: p.rotation,
         orientation: p.orientation,
+        ...(p.color ? { color: p.color } : {}),
       })),
     };
   }
@@ -240,7 +272,7 @@ export class AssemblyState {
       const rot: PlacedPart["rotation"] = Array.isArray(p.rotation)
         ? (p.rotation as PlacedPart["rotation"])
         : [0, (p.rotation || 0) as any, 0];
-      this.addPart(p.type, p.position, rot, p.orientation);
+      this.addPart(p.type, p.position, rot, p.orientation, p.color);
     }
   }
 }

@@ -3,7 +3,6 @@ import { test, expect } from "./fixtures";
 test.describe("Auto-rotation for connector snapping", () => {
   test.beforeEach(async ({ appPage: page }) => {
     await page.evaluate(() => (window as any).__assembly.clear());
-    await page.waitForTimeout(200);
   });
 
   test("L-shape corner: 2D-2W rotates to face both supports", async ({

@@ -10,6 +10,24 @@ import { AssemblyState } from "../assembly/AssemblyState";
 import { nextOrientation, orientationToRotation, transformCell, rotateGridCells, computeGroundLift } from "../assembly/grid-utils";
 import { findBestSnap, findBestConnectorSnap, type GridRay } from "../assembly/snap";
 
+/**
+ * Create a MeshStandardMaterial with a custom color, preserving surface detail
+ * (normal maps, roughness maps, AO) from the original GLB material when available.
+ */
+function makeColorMaterial(
+  color: string,
+  original?: THREE.Material | null,
+  overrides?: { transparent?: boolean; opacity?: number; emissive?: THREE.Color; emissiveIntensity?: number },
+): THREE.MeshStandardMaterial {
+  const src = original instanceof THREE.MeshStandardMaterial ? original : null;
+  return new THREE.MeshStandardMaterial({
+    ...src as THREE.MeshStandardMaterialParameters,
+    color: new THREE.Color(color),
+    vertexColors: false,
+    ...overrides,
+  });
+}
+
 interface ViewportProps {
   parts: PlacedPart[];
   mode: InteractionMode;
@@ -142,7 +160,8 @@ function CustomPartMesh({
     }
   });
 
-  const color = isSelected ? PART_COLORS.selected : PART_COLORS.custom;
+  const categoryColor = part.color ?? PART_COLORS.custom;
+  const color = isSelected ? PART_COLORS.selected : categoryColor;
   const opacity = isDragging ? 0.3 : 1;
 
   return (
@@ -197,7 +216,7 @@ function PartMeshLoaded({
   // Store original materials so we can restore them on deselect
   const originalMaterials = useRef<WeakMap<THREE.Mesh, THREE.Material>>(new WeakMap());
 
-  // Apply selection highlight or drag dimming (skip while flashing — useFrame handles that)
+  // Apply selection highlight, drag dimming, or custom color (skip while flashing — useFrame handles that)
   useEffect(() => {
     if (!groupRef.current || isFlashing) return;
     groupRef.current.traverse((child) => {
@@ -206,16 +225,30 @@ function PartMeshLoaded({
         if (!originalMaterials.current.has(child)) {
           originalMaterials.current.set(child, child.material);
         }
+        const orig = originalMaterials.current.get(child) ?? child.material;
         if (isDragging) {
-          const mat = (originalMaterials.current.get(child) ?? child.material).clone();
-          mat.transparent = true;
-          mat.opacity = 0.3;
-          child.material = mat;
+          if (part.color) {
+            child.material = makeColorMaterial(part.color, orig, { transparent: true, opacity: 0.3 });
+          } else {
+            const mat = orig.clone();
+            mat.transparent = true;
+            mat.opacity = 0.3;
+            child.material = mat;
+          }
         } else if (isSelected) {
-          const mat = (originalMaterials.current.get(child) ?? child.material).clone();
-          mat.emissive = new THREE.Color(PART_COLORS.selected);
-          mat.emissiveIntensity = 0.3;
-          child.material = mat;
+          if (part.color) {
+            child.material = makeColorMaterial(part.color, orig, {
+              emissive: new THREE.Color(PART_COLORS.selected),
+              emissiveIntensity: 0.3,
+            });
+          } else {
+            const mat = orig.clone();
+            mat.emissive = new THREE.Color(PART_COLORS.selected);
+            mat.emissiveIntensity = 0.3;
+            child.material = mat;
+          }
+        } else if (part.color) {
+          child.material = makeColorMaterial(part.color, orig);
         } else {
           // Restore original material
           const orig = originalMaterials.current.get(child);
@@ -223,7 +256,7 @@ function PartMeshLoaded({
         }
       }
     });
-  }, [isSelected, isDragging, isFlashing]);
+  }, [isSelected, isDragging, isFlashing, part.color]);
 
   // Flash animation for "find part" from selection panel
   const flashStart = useRef(0);
@@ -241,11 +274,16 @@ function PartMeshLoaded({
       });
     } else if (flashStart.current !== 0) {
       flashStart.current = 0;
-      // Restore: re-trigger the selection/deselect effect
+      // Restore after flash: if custom color is set, re-apply it; otherwise restore original
       groupRef.current.traverse((child) => {
         if (child instanceof THREE.Mesh) {
-          const orig = originalMaterials.current.get(child);
-          if (orig) child.material = orig;
+          if (part.color) {
+            const orig = originalMaterials.current.get(child) ?? child.material;
+            child.material = makeColorMaterial(part.color, orig);
+          } else {
+            const orig = originalMaterials.current.get(child);
+            if (orig) child.material = orig;
+          }
         }
       });
     }
@@ -310,7 +348,7 @@ function PartMeshFallback({
   const worldPos = gridToWorld(part.position);
   const color = isSelected
     ? PART_COLORS.selected
-    : PART_COLORS[def.category] || "#888888";
+    : (part.color || PART_COLORS[def.category] || "#888888");
 
   // Use oriented + rotated cells for correct sizing and offset
   const orient = part.orientation ?? "y";

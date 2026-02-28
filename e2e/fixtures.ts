@@ -5,8 +5,8 @@ import { test as base, type Page } from "@playwright/test";
  */
 export async function waitForApp(page: Page) {
   await page.waitForSelector(".app", { timeout: 10_000 });
-  // Give R3F time to mount and render
-  await page.waitForTimeout(1500);
+  // Wait for R3F to mount and expose the scene object
+  await page.waitForFunction(() => !!(window as any).__scene, { timeout: 10_000 });
 }
 
 /**
@@ -24,7 +24,44 @@ export async function clickCatalogItem(page: Page, name: string) {
       }
     }
   }, name);
-  await page.waitForTimeout(300);
+  // Wait for React to process the click
+  await page.waitForFunction(
+    (n) => !!document.querySelector(".catalog-item.active .catalog-item-name")
+      || document.querySelector(".viewport")?.getAttribute("data-placing") != null,
+    name,
+    { timeout: 3_000 },
+  );
+}
+
+/**
+ * Wait for a Three.js mesh to be loaded and have geometry (replaces GLB load timeouts).
+ */
+export async function waitForMesh(page: Page, objectName: string, timeout = 10_000) {
+  await page.waitForFunction(
+    (name: string) => {
+      const scene = (window as any).__scene;
+      if (!scene) return false;
+      let found = false;
+      scene.traverse((obj: any) => {
+        if (obj.name === name && obj.children?.length > 0) found = true;
+        if (obj.name === name && obj.isMesh) found = true;
+      });
+      return found;
+    },
+    objectName,
+    { timeout },
+  );
+}
+
+/**
+ * Wait for the BOM table to have at least `minRows` rows.
+ */
+export async function waitForBOM(page: Page, minRows = 1) {
+  await page.waitForFunction(
+    (min: number) => document.querySelectorAll(".bom-table tbody tr").length >= min,
+    minRows,
+    { timeout: 5_000 },
+  );
 }
 
 /**
