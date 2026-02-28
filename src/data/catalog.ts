@@ -35,18 +35,23 @@ function supportDef(units: number): PartDefinition {
 /** Generate a connector part definition */
 function connectorDef(
   configId: string,
-  isFoot: boolean = false
+  isFoot: boolean = false,
+  pullThroughAxis?: "x" | "y" | "z"
 ): PartDefinition {
-  const suffix = isFoot ? "-foot" : "";
+  const footSuffix = isFoot ? "-foot" : "";
+  const ptSuffix = pullThroughAxis ? `-pt-${pullThroughAxis}` : "";
   const config = CONNECTOR_CONFIGS[configId];
   const footLabel = isFoot ? " Foot" : "";
+  const ptLabel = pullThroughAxis
+    ? ` PT-${pullThroughAxis.toUpperCase()}`
+    : "";
 
   return {
-    id: `connector-${configId}${suffix}`,
+    id: `connector-${configId}${footSuffix}${ptSuffix}`,
     category: "connector",
-    name: `${config.dimensions}D ${config.directions}-Way${footLabel}`,
-    description: `${config.dimensions}-dimensional ${config.directions}-way connector${footLabel}`,
-    modelPath: `models/connector-${configId}${suffix}.glb`,
+    name: `${config.dimensions}D ${config.directions}-Way${footLabel}${ptLabel}`,
+    description: `${config.dimensions}-dimensional ${config.directions}-way connector${footLabel}${pullThroughAxis ? ` with ${pullThroughAxis.toUpperCase()}-axis pull-through` : ""}`,
+    modelPath: `models/connector-${configId}${footSuffix}${ptSuffix}.glb`,
     connectionPoints: connectorConnectionPoints(configId),
     gridCells: [[0, 0, 0]],
   };
@@ -76,6 +81,43 @@ export const PART_CATALOG: PartDefinition[] = [
   connectorDef("3d4w", true),
   connectorDef("3d5w", true),
   connectorDef("3d6w", true),
+
+  // Connectors — pull-through variants (base)
+  connectorDef("1d1w", false, "z"),
+  connectorDef("1d2w", false, "z"),
+
+  connectorDef("2d2w", false, "z"),
+  connectorDef("2d2w", false, "x"),
+  connectorDef("2d3w", false, "z"),
+  connectorDef("2d3w", false, "x"),
+  connectorDef("2d4w", false, "z"),
+  connectorDef("2d4w", false, "x"),
+
+  connectorDef("3d3w", false, "z"),
+  connectorDef("3d3w", false, "x"),
+  connectorDef("3d3w", false, "y"),
+  connectorDef("3d4w", false, "z"),
+  connectorDef("3d4w", false, "x"),
+  connectorDef("3d4w", false, "y"),
+  connectorDef("3d5w", false, "z"),
+  connectorDef("3d5w", false, "x"),
+  connectorDef("3d5w", false, "y"),
+  connectorDef("3d6w", false, "z"),
+  connectorDef("3d6w", false, "x"),
+  connectorDef("3d6w", false, "y"),
+
+  // Connectors — foot + pull-through variants (z-axis PT overridden by foot)
+  connectorDef("2d2w", true, "x"),
+  connectorDef("2d3w", true, "x"),
+  connectorDef("2d4w", true, "x"),
+  connectorDef("3d3w", true, "x"),
+  connectorDef("3d3w", true, "y"),
+  connectorDef("3d4w", true, "x"),
+  connectorDef("3d4w", true, "y"),
+  connectorDef("3d5w", true, "x"),
+  connectorDef("3d5w", true, "y"),
+  connectorDef("3d6w", true, "x"),
+  connectorDef("3d6w", true, "y"),
 
   // Lock pins
   {
