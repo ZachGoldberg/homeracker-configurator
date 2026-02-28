@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore, useCallback } from "react";
 import { PART_CATALOG } from "../data/catalog";
 import { PART_COLORS } from "../constants";
-import { subscribeCustomParts, getCustomPartsSnapshot, importSTL, deleteCustomPart } from "../data/custom-parts";
+import { subscribeCustomParts, getCustomPartsSnapshot, importModelFile, deleteCustomPart } from "../data/custom-parts";
 import { useThumbnail } from "../thumbnails/useThumbnail";
 import type { InteractionMode, PartCategory, PartDefinition } from "../types";
 
@@ -22,7 +22,8 @@ function getCategoryIcon(category: PartCategory): string {
   switch (category) {
     case "connector": return "+";
     case "support": return "||";
-    case "custom": return "STL";
+    case "other": return "3D";
+    case "custom": return "3D";
     default: return ".";
   }
 }
@@ -76,18 +77,18 @@ export function Sidebar({ onSelectPart, activeMode }: SidebarProps) {
     getCustomPartsSnapshot,
   );
 
-  const handleImportSTL = useCallback(() => {
+  const handleImportModel = useCallback(() => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".stl";
+    input.accept = ".stl,.3mf";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
       try {
-        const def = await importSTL(file);
-        onSelectPart(def.id);
+        const defs = await importModelFile(file);
+        if (defs.length > 0) onSelectPart(defs[0].id);
       } catch (err) {
-        console.error("STL import failed:", err);
+        console.error("Model import failed:", err);
       }
     };
     input.click();
@@ -166,6 +167,84 @@ export function Sidebar({ onSelectPart, activeMode }: SidebarProps) {
         );
       })}
 
+      {/* Other — raw models, grouped by source file */}
+      {(() => {
+        const otherParts = filterParts(PART_CATALOG.filter((p) => p.category === "other"));
+        if (otherParts.length === 0) return null;
+
+        const isOtherCollapsed = !isSearching && collapsed.has("other");
+
+        // Group parts by their group field; ungrouped parts go into a flat list
+        const groups: Map<string, PartDefinition[]> = new Map();
+        const ungrouped: PartDefinition[] = [];
+        for (const part of otherParts) {
+          if (part.group) {
+            const list = groups.get(part.group) ?? [];
+            list.push(part);
+            groups.set(part.group, list);
+          } else {
+            ungrouped.push(part);
+          }
+        }
+
+        return (
+          <div className="catalog-section">
+            <h2
+              className="catalog-section-title"
+              onClick={() => toggleCategory("other")}
+            >
+              <span className="catalog-section-toggle">{isOtherCollapsed ? "\u25b8" : "\u25be"}</span>
+              Other
+              <span className="catalog-section-count">{otherParts.length}</span>
+            </h2>
+            {!isOtherCollapsed && (
+              <>
+                {ungrouped.length > 0 && (
+                  <div className="catalog-grid">
+                    {ungrouped.map((part) => (
+                      <PartButton
+                        key={part.id}
+                        part={part}
+                        isActive={activePlaceId === part.id}
+                        onSelect={() => onSelectPart(part.id)}
+                      />
+                    ))}
+                  </div>
+                )}
+                {[...groups.entries()].map(([groupName, parts]) => {
+                  const groupKey = `other-group-${groupName}`;
+                  const isGroupCollapsed = !isSearching && collapsed.has(groupKey);
+                  return (
+                    <div key={groupKey} className="catalog-subgroup">
+                      <h3
+                        className="catalog-subgroup-title"
+                        onClick={() => toggleCategory(groupKey)}
+                      >
+                        <span className="catalog-section-toggle">{isGroupCollapsed ? "\u25b8" : "\u25be"}</span>
+                        {groupName}
+                        <span className="catalog-section-count">{parts.length}</span>
+                      </h3>
+                      {!isGroupCollapsed && (
+                        <div className="catalog-grid">
+                          {parts.map((part) => (
+                            <PartButton
+                              key={part.id}
+                              part={part}
+                              isActive={activePlaceId === part.id}
+                              onSelect={() => onSelectPart(part.id)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Custom / Imported section */}
       {(() => {
         const customParts = filterParts(customSnapshot.definitions);
@@ -209,8 +288,8 @@ export function Sidebar({ onSelectPart, activeMode }: SidebarProps) {
                     ))}
                   </div>
                 )}
-                <button className="catalog-import-btn" onClick={handleImportSTL}>
-                  Import STL
+                <button className="catalog-import-btn" onClick={handleImportModel}>
+                  Import Model
                 </button>
               </>
             )}

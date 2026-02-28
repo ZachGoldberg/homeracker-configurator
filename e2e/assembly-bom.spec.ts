@@ -1,15 +1,15 @@
 import { test, expect, clickCatalogItem, getBBox } from "./fixtures";
 
 test.describe("No geometry below ground (Y=0)", () => {
-  test("connector-3d6w is blocked at Y=0 (has -Y arm)", async ({
+  test("connector-3d6w can be placed at Y=0 (no collision system)", async ({
     appPage: page,
   }) => {
     await page.evaluate(() => (window as any).__assembly.clear());
     const id = await page.evaluate(() =>
       (window as any).__assembly.addPart("connector-3d6w", [0, 0, 0])
     );
-    // 3d6w has a -Y arm that would extend below ground, so placement is blocked
-    expect(id).toBeNull();
+    // No collision system — placement always succeeds
+    expect(id).not.toBeNull();
   });
 
   test("connector-3d6w at Y=1 is allowed (arm reaches Y=0)", async ({
@@ -57,15 +57,16 @@ test.describe("No geometry below ground (Y=0)", () => {
     expect(bbox!.minY).toBeGreaterThanOrEqual(-0.1);
   });
 
-  test("rotated connector with arm below ground is blocked", async ({
+  test("rotated connector with arm below ground is allowed (no collision)", async ({
     appPage: page,
   }) => {
     await page.evaluate(() => (window as any).__assembly.clear());
     // connector-2d4w rotated 90° around X: a horizontal arm becomes -Y
+    // No collision system — placement always succeeds
     const id = await page.evaluate(() =>
       (window as any).__assembly.addPart("connector-2d4w", [0, 0, 0], [90, 0, 0])
     );
-    expect(id).toBeNull();
+    expect(id).not.toBeNull();
   });
 
   test("connector-3d5w (no -Y arm) can be placed at Y=0", async ({
@@ -186,17 +187,17 @@ test.describe("Place parts and BOM", () => {
   });
 });
 
-test.describe("Collision detection", () => {
-  test("cannot place on occupied position", async ({ appPage: page }) => {
+test.describe("Overlapping placement (no collision)", () => {
+  test("can place on occupied position", async ({ appPage: page }) => {
     await page.evaluate(() => (window as any).__assembly.clear());
     await page.evaluate(() =>
       (window as any).__assembly.addPart("connector-3d6w", [0, 1, 0])
     );
 
-    const collision = await page.evaluate(() =>
+    const overlap = await page.evaluate(() =>
       (window as any).__assembly.addPart("connector-2d2w", [0, 1, 0])
     );
-    expect(collision).toBeNull();
+    expect(overlap).not.toBeNull();
   });
 });
 

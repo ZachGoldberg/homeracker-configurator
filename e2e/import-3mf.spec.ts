@@ -1,4 +1,9 @@
 import { test, expect } from "./fixtures";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Build a minimal valid 3MF file (a ZIP archive) containing a 10x10x10mm cube.
@@ -317,5 +322,30 @@ test.describe("3MF import", () => {
       );
       expect(placed).not.toBeNull();
     }
+  });
+
+  test("real BambuStudio 3MF imports correct number of parts", async ({
+    appPage: page,
+  }) => {
+    const filePath = path.resolve(__dirname, "../raw-models/HomeRacker+-+Pi5+Case.3mf");
+    if (!fs.existsSync(filePath)) {
+      test.skip();
+      return;
+    }
+    const buf = fs.readFileSync(filePath);
+    const bytes = Array.from(new Uint8Array(buf));
+
+    const result = await page.evaluate(async (bytes: number[]) => {
+      const buffer = new Uint8Array(bytes).buffer;
+      const file = new File([buffer], "Pi5-Case.3mf");
+      const defs = await (window as any).__importModel(file);
+      return defs.map((d: any) => d.name as string);
+    }, bytes);
+
+    console.log("Imported parts:", result.length, result);
+    // The 3MF has 11 build items referencing 9 unique meshes across model files.
+    // Should import <= 11 parts (one per build item), not hundreds.
+    expect(result.length).toBeLessThanOrEqual(11);
+    expect(result.length).toBeGreaterThan(0);
   });
 });

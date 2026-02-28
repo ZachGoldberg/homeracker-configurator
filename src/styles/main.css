@@ -198,6 +198,28 @@
     color: var(--text-primary);
   }
 
+  .catalog-subgroup {
+    margin-top: 6px;
+    padding-left: 8px;
+    border-left: 2px solid var(--border);
+  }
+
+  .catalog-subgroup-title {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    user-select: none;
+  }
+
+  .catalog-subgroup-title:hover {
+    color: var(--text-primary);
+  }
+
   .catalog-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -367,6 +389,14 @@
   .viewport canvas {
     width: 100% !important;
     height: 100% !important;
+  }
+
+  .box-select-overlay {
+    position: fixed;
+    border: 1px solid #4a9eff;
+    background: rgba(74, 158, 255, 0.15);
+    pointer-events: none;
+    z-index: 10;
   }
 
   .viewport-hint {

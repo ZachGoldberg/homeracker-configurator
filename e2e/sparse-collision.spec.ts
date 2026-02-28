@@ -88,7 +88,7 @@ test.describe("Sparse collision: perpendicular supports can cross", () => {
     expect(zId).not.toBeNull();
   });
 
-  test("same-axis supports still cannot overlap", async ({
+  test("same-axis supports can overlap (no collision)", async ({
     appPage: page,
   }) => {
     // Place a vertical support at [0,0,0]
@@ -97,67 +97,27 @@ test.describe("Sparse collision: perpendicular supports can cross", () => {
     );
     expect(id1).not.toBeNull();
 
-    // Place another vertical support overlapping at [0,0,0] - should still fail
+    // Place another vertical support overlapping at [0,0,0] — succeeds (no collision system)
     const id2 = await page.evaluate(() =>
       (window as any).__assembly.addPart("support-3u", [0, 0, 0], [0, 0, 0], "y")
     );
-    expect(id2).toBeNull();
+    expect(id2).not.toBeNull();
   });
 
-  test("connector still blocks all axes at its cell", async ({
+  test("connector and support can overlap (no collision)", async ({
     appPage: page,
   }) => {
-    // Connector at [0,1,0] — use Y=1 so 6-way arms don't extend below ground
+    // Connector at [0,1,0]
     const connId = await page.evaluate(() =>
       (window as any).__assembly.addPart("connector-3d6w", [0, 1, 0])
     );
     expect(connId).not.toBeNull();
 
-    // Support crossing through the connector cell should still be blocked
+    // Support crossing through the connector cell — succeeds (no collision system)
     const supportId = await page.evaluate(() =>
       (window as any).__assembly.addPart("support-3u", [-1, 1, 0], [0, 0, 0], "x")
     );
-    expect(supportId).toBeNull();
-  });
-
-  test("support cannot cross through a connector", async ({
-    appPage: page,
-  }) => {
-    // Use a 2d4w connector (no -y arm) so it can sit at Y=2
-    const connId = await page.evaluate(() =>
-      (window as any).__assembly.addPart("connector-2d4w", [0, 2, 0])
-    );
-    expect(connId).not.toBeNull();
-
-    // Vertical support spanning through [0,2,0] should be blocked
-    const supportId = await page.evaluate(() =>
-      (window as any).__assembly.addPart("support-5u", [0, 0, 0], [0, 0, 0], "y")
-    );
-    expect(supportId).toBeNull();
-  });
-
-  test("canPlaceIgnoring works with sparse cells during drag", async ({
-    appPage: page,
-  }) => {
-    // Place two crossing supports
-    const yId = await page.evaluate(() =>
-      (window as any).__assembly.addPart("support-5u", [0, 0, 0], [0, 0, 0], "y")
-    );
-    expect(yId).not.toBeNull();
-
-    const xId = await page.evaluate(() =>
-      (window as any).__assembly.addPart("support-5u", [-2, 2, 0], [0, 0, 0], "x")
-    );
-    expect(xId).not.toBeNull();
-
-    // canPlaceIgnoring should let us "move" the x-support back to its own position
-    const canMove = await page.evaluate((id: string) =>
-      (window as any).__assembly.canPlaceIgnoring(
-        "support-5u", [-2, 2, 0], [0, 0, 0], id, "x"
-      ),
-      xId!
-    );
-    expect(canMove).toBe(true);
+    expect(supportId).not.toBeNull();
   });
 
   test("custom part with hollow interior allows placement inside", async ({
@@ -172,8 +132,8 @@ test.describe("Sparse collision: perpendicular supports can cross", () => {
     const customId = await page.evaluate(async (bytes: number[]) => {
       const buffer = new Uint8Array(bytes).buffer;
       const file = new File([buffer], "sparse-frame.stl");
-      const def = await (window as any).__importSTL(file);
-      return def.id as string;
+      const defs = await (window as any).__importSTL(file);
+      return defs[0].id as string;
     }, Array.from(stlBytes));
 
     expect(customId).toBeTruthy();

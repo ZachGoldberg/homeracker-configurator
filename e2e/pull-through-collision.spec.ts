@@ -57,7 +57,7 @@ test.describe("Pull-through connector collision", () => {
     expect(ptId).toBeTruthy();
   });
 
-  test("regular connector is still blocked from overlapping supports", async ({
+  test("regular connector can also overlap supports (no collision)", async ({
     appPage: page,
   }) => {
     // Place a support at [0,0,0] oriented along Z
@@ -67,12 +67,12 @@ test.describe("Pull-through connector collision", () => {
       return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "z");
     });
 
-    // Place a regular (non-PT) connector at [0,0,0] — should fail
+    // Place a regular (non-PT) connector at [0,0,0] — succeeds (no collision system)
     const connId = await page.evaluate(() => {
       const a = (window as any).__assembly;
       return a.addPart("connector-2d2w", [0, 0, 0], [0, 0, 0]);
     });
-    expect(connId).toBeNull();
+    expect(connId).toBeTruthy();
   });
 
   test("PT connector respects rotation when checking axis match", async ({

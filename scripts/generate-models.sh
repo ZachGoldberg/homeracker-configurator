@@ -124,6 +124,104 @@ done
 rm -rf "${STL_DIR}"
 rm -f /tmp/openscad-gen.log
 
+# ---------------------------------------------------------------------------
+# Convert raw models (STL, 3MF, OBJ, etc.) from raw-models/ directory
+# Multi-geometry files (e.g. 3MF) are split into individual GLBs, grouped
+# under the source filename in the manifest.
+# ---------------------------------------------------------------------------
+RAW_MODELS_DIR="${PROJECT_ROOT}/raw-models"
+RAW_MANIFEST="${PROJECT_ROOT}/src/data/raw-models-manifest.json"
+raw_count=0
+
+if [[ -d "${RAW_MODELS_DIR}" ]]; then
+    log_info "Processing raw models from ${RAW_MODELS_DIR}..."
+
+    # Collect JSON entries — each is a flat object with optional "group" field
+    manifest_entries=()
+
+    for raw_file in "${RAW_MODELS_DIR}"/*.{stl,STL,3mf,3MF,obj,OBJ,ply,PLY,off,OFF}; do
+        [[ -f "${raw_file}" ]] || continue
+
+        filename=$(basename "${raw_file}")
+        name_no_ext="${filename%.*}"
+        # Clean display name: replace + with space, collapse whitespace
+        display_name=$(echo "${name_no_ext}" | sed 's/+-+/ - /g; s/+/ /g; s/  */ /g; s/^ //; s/ $//')
+        # Sanitize to ID prefix: lowercase, replace non-alphanumeric with hyphens
+        id_base="other-$(echo "${name_no_ext}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g; s/--*/-/g; s/^-//; s/-$//')"
+
+        log_info "Converting raw model: ${filename} (split mode)..."
+
+        # Use --split to export each geometry as a separate GLB
+        if ! split_json=$(python3 "${SCRIPT_DIR}/stl-to-glb.py" --split "${raw_file}" "${GLB_DIR}/${id_base}" "other" 2>/tmp/split-convert.log); then
+            log_error "Failed to convert ${filename}"
+            cat /tmp/split-convert.log
+            fail_count=$((fail_count + 1))
+            continue
+        fi
+
+        # Parse the JSON array of split results
+        num_parts=$(echo "${split_json}" | jq 'length')
+
+        if [[ "${num_parts}" -le 0 ]]; then
+            log_error "No geometries found in ${filename}"
+            fail_count=$((fail_count + 1))
+            continue
+        fi
+
+        for idx in $(seq 0 $((num_parts - 1))); do
+            part_file=$(echo "${split_json}" | jq -r ".[$idx].file")
+            part_index=$(echo "${split_json}" | jq -r ".[$idx].index")
+
+            part_id="${id_base}-${part_index}"
+            full_path="${GLB_DIR}/${part_file}"
+
+            if [[ -f "${full_path}" ]]; then
+                file_size=$(stat -c%s "${full_path}" 2>/dev/null || stat -f%z "${full_path}" 2>/dev/null)
+                log_success "${part_file} (${file_size} bytes)"
+
+                # For multi-part files: name is "Part N", with group = display_name
+                # For single-part files: name is display_name, no group
+                if [[ "${num_parts}" -gt 1 ]]; then
+                    manifest_entries+=("{\"id\":\"${part_id}\",\"name\":\"Part ${part_index}\",\"file\":\"${part_file}\",\"group\":\"${display_name}\"}")
+                else
+                    manifest_entries+=("{\"id\":\"${part_id}\",\"name\":\"${display_name}\",\"file\":\"${part_file}\"}")
+                fi
+
+                raw_count=$((raw_count + 1))
+                render_count=$((render_count + 1))
+            else
+                log_error "Expected output ${part_file} not found"
+                fail_count=$((fail_count + 1))
+            fi
+        done
+    done
+
+    rm -f /tmp/split-convert.log
+
+    # Write manifest JSON
+    if [[ ${#manifest_entries[@]} -gt 0 ]]; then
+        printf "[\n" > "${RAW_MANIFEST}"
+        for i in "${!manifest_entries[@]}"; do
+            if [[ $i -lt $((${#manifest_entries[@]} - 1)) ]]; then
+                printf "  %s,\n" "${manifest_entries[$i]}" >> "${RAW_MANIFEST}"
+            else
+                printf "  %s\n" "${manifest_entries[$i]}" >> "${RAW_MANIFEST}"
+            fi
+        done
+        printf "]\n" >> "${RAW_MANIFEST}"
+        log_success "Raw models manifest: ${RAW_MANIFEST} (${#manifest_entries[@]} entries)"
+    else
+        printf "[]\n" > "${RAW_MANIFEST}"
+    fi
+
+    if [[ ${raw_count} -gt 0 ]]; then
+        log_success "${raw_count} raw model(s) converted"
+    fi
+else
+    # No raw-models directory — write empty manifest
+    printf "[]\n" > "${RAW_MANIFEST}"
+fi
+
 echo ""
 if [[ ${fail_count} -gt 0 ]]; then
     log_error "${fail_count} model(s) failed, ${render_count} succeeded"

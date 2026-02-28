@@ -2,7 +2,7 @@
 export type GridPosition = [number, number, number];
 
 /** Part category */
-export type PartCategory = "support" | "connector" | "lockpin" | "custom";
+export type PartCategory = "support" | "connector" | "lockpin" | "other" | "custom";
 
 /** Direction an arm/connection faces */
 export type Direction = "+x" | "-x" | "+y" | "-y" | "+z" | "-z";
@@ -34,6 +34,8 @@ export interface PartDefinition {
   gridCells: GridPosition[];
   /** For pull-through connectors: which axis supports can pass through (before rotation) */
   pullThroughAxis?: Axis;
+  /** Group name for organizing parts into sub-folders (e.g. multi-part 3MF files) */
+  group?: string;
 }
 
 /** Rotation step: 0, 90, 180, or 270 degrees */

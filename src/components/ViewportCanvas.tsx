@@ -17,10 +17,12 @@ interface ViewportProps {
   assembly: AssemblyState;
   onPlacePart: (definitionId: string, position: GridPosition, rotation: PlacedPart["rotation"], orientation?: Axis) => void;
   onMovePart: (instanceId: string, newPosition: GridPosition, rotation?: Rotation3, orientation?: Axis) => void;
+  onMoveSelectedParts: (primaryId: string, newPosition: GridPosition, rotation?: Rotation3, orientation?: Axis) => void;
   onClickPart: (instanceId: string, shiftKey: boolean) => void;
   onClickEmpty: () => void;
   onDeleteSelected: () => void;
   onPasteParts: (clipboard: ClipboardData, targetPosition: GridPosition) => void;
+  onBoxSelect: (ids: string[]) => void;
   onEscape: () => void;
   flashPartId: string | null;
   snapEnabled: boolean;
@@ -564,9 +566,9 @@ function GhostPreview({
 
     if (snap) {
       const orient = isSupport ? snap.orientation : ghostOrientation;
-      const snapRotation: Rotation3 = isSupport ? [0, 0, 0] : ghostRotation;
-      const snapLift = def ? computeGroundLift(def, snapRotation, orient) : 0;
-      const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift) + yLift, snap.position[2]];
+      const snapRotation: Rotation3 = isSupport ? [0, 0, 0] : (snap.autoRotation ?? ghostRotation);
+      // Snap position Y is already correct (adjacent to support endpoint); only add user yLift
+      const liftedSnapPos: GridPosition = [snap.position[0], snap.position[1] + yLift, snap.position[2]];
       setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
       setEffectiveRotation(snapRotation);
@@ -618,12 +620,16 @@ function DragPreview({
   dropTargetRef,
   yLift,
   snapEnabled,
+  selectedPartIds,
+  parts,
 }: {
   dragState: DragState;
   assembly: AssemblyState;
   dropTargetRef: React.MutableRefObject<{ position: GridPosition; orientation?: Axis; rotation?: Rotation3 }>;
   yLift: number;
   snapEnabled: boolean;
+  selectedPartIds: Set<string>;
+  parts: PlacedPart[];
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>(dragState.originalPosition);
@@ -687,9 +693,8 @@ function DragPreview({
 
     if (snap) {
       const orient = isSupport ? snap.orientation : (dragState.orientation ?? "y");
-      // Auto-lift snapped position if rotation pushes geometry below ground
-      const snapLift = def ? computeGroundLift(def, dragState.rotation, orient) : 0;
-      const liftedSnapPos: GridPosition = [snap.position[0], Math.max(snap.position[1], snapLift) + yLift, snap.position[2]];
+      // Snap position Y is already correct (adjacent to support endpoint); only add user yLift
+      const liftedSnapPos: GridPosition = [snap.position[0], snap.position[1] + yLift, snap.position[2]];
       setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
       setIsSnapped(true);
@@ -712,12 +717,33 @@ function DragPreview({
 
   const worldPos = gridToWorld(gridPos);
 
+  // Compute delta for multi-drag ghost rendering
+  const isMultiDrag = selectedPartIds.size > 1 && selectedPartIds.has(dragState.instanceId);
+  const delta: GridPosition = [
+    gridPos[0] - dragState.originalPosition[0],
+    gridPos[1] - dragState.originalPosition[1],
+    gridPos[2] - dragState.originalPosition[2],
+  ];
+
   return (
-    <group name="drag-preview" position={worldPos}>
-      <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} orientation={effectiveOrientation} />}>
-        <GhostModel definitionId={dragState.definitionId} rotation={dragState.rotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
-      </Suspense>
-    </group>
+    <>
+      <group name="drag-preview" position={worldPos}>
+        <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} orientation={effectiveOrientation} />}>
+          <GhostModel definitionId={dragState.definitionId} rotation={dragState.rotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
+        </Suspense>
+      </group>
+      {isMultiDrag && parts.filter((p) => selectedPartIds.has(p.instanceId) && p.instanceId !== dragState.instanceId).map((p) => {
+        const offsetPos: GridPosition = [p.position[0] + delta[0], p.position[1] + delta[1], p.position[2] + delta[2]];
+        const wp = gridToWorld(offsetPos);
+        return (
+          <group key={p.instanceId} name={`drag-preview-${p.instanceId}`} position={wp}>
+            <Suspense fallback={<GhostFallback definitionId={p.definitionId} orientation={p.orientation ?? "y"} />}>
+              <GhostModel definitionId={p.definitionId} rotation={p.rotation} orientation={p.orientation ?? "y"} isSnapped={isSnapped} />
+            </Suspense>
+          </group>
+        );
+      })}
+    </>
   );
 }
 
@@ -846,6 +872,7 @@ interface SceneProps extends ViewportProps {
   dropTargetRef: React.MutableRefObject<{ position: GridPosition; orientation?: Axis; rotation?: Rotation3 }>;
   onPartPointerDown: (instanceId: string, nativeEvent: PointerEvent) => void;
   yLift: number;
+  boxSelectActive: boolean;
 }
 
 /** Scene contents — lives inside the Canvas */
@@ -867,6 +894,7 @@ function Scene({
   yLift,
   flashPartId,
   snapEnabled,
+  boxSelectActive,
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
 
@@ -897,8 +925,8 @@ function Scene({
       <directionalLight position={[100, 200, 100]} intensity={1.5} castShadow />
       <directionalLight position={[-50, 100, -50]} intensity={0.8} />
 
-      {/* Camera controls — disabled during drag */}
-      <OrbitControls makeDefault enableDamping dampingFactor={0.1} enabled={!dragState} />
+      {/* Camera controls — disabled during drag or box select */}
+      <OrbitControls makeDefault enableDamping dampingFactor={0.1} enabled={!dragState && !boxSelectActive} />
 
       {/* Grid floor */}
       <Grid
@@ -966,6 +994,8 @@ function Scene({
           dropTargetRef={dropTargetRef}
           yLift={yLift}
           snapEnabled={snapEnabled}
+          selectedPartIds={selectedPartIds}
+          parts={parts}
         />
       )}
 
@@ -1006,6 +1036,12 @@ export function ViewportCanvas(props: ViewportProps) {
     startY: number;
   } | null>(null);
 
+  // Box-select (marquee) state
+  const boxSelectRef = useRef<{ startX: number; startY: number } | null>(null);
+  const [boxSelectRect, setBoxSelectRect] = useState<{
+    x1: number; y1: number; x2: number; y2: number;
+  } | null>(null);
+
   // Determine if we're placing a support (orientation cycling) vs connector (rotation)
   const placingId = props.mode.type === "place" ? props.mode.definitionId : null;
   const placingDef = placingId ? getPartDefinition(placingId) : null;
@@ -1042,11 +1078,28 @@ export function ViewportCanvas(props: ViewportProps) {
     [props.mode]
   );
 
-  // Window-level pointer move/up for drag detection
+  // Window-level pointer move/up for drag detection and box-select
   useEffect(() => {
     const DRAG_THRESHOLD = 5;
 
     const handlePointerMove = (e: PointerEvent) => {
+      // Box-select tracking
+      const boxStart = boxSelectRef.current;
+      if (boxStart) {
+        const dx = e.clientX - boxStart.startX;
+        const dy = e.clientY - boxStart.startY;
+        if (Math.sqrt(dx * dx + dy * dy) >= DRAG_THRESHOLD) {
+          setBoxSelectRect({
+            x1: boxStart.startX,
+            y1: boxStart.startY,
+            x2: e.clientX,
+            y2: e.clientY,
+          });
+        }
+        return;
+      }
+
+      // Part drag tracking
       const pending = pendingDragRef.current;
       if (!pending) return;
       if (dragState) return; // Already dragging
@@ -1072,12 +1125,55 @@ export function ViewportCanvas(props: ViewportProps) {
     };
 
     const handlePointerUp = (e: PointerEvent) => {
+      // Box-select finalize
+      if (boxSelectRef.current) {
+        if (boxSelectRect) {
+          // Project each part to screen space and check if inside the rect
+          const camera = (window as any).__camera as THREE.Camera | undefined;
+          const canvas = document.querySelector(".viewport canvas") as HTMLCanvasElement | null;
+          if (camera && canvas) {
+            const rect = canvas.getBoundingClientRect();
+            const minX = Math.min(boxSelectRect.x1, boxSelectRect.x2);
+            const maxX = Math.max(boxSelectRect.x1, boxSelectRect.x2);
+            const minY = Math.min(boxSelectRect.y1, boxSelectRect.y2);
+            const maxY = Math.max(boxSelectRect.y1, boxSelectRect.y2);
+
+            const matched: string[] = [];
+            for (const part of props.parts) {
+              const worldPos = new THREE.Vector3(
+                part.position[0] * BASE_UNIT,
+                part.position[1] * BASE_UNIT + BASE_UNIT / 2,
+                part.position[2] * BASE_UNIT,
+              );
+              worldPos.project(camera);
+              const sx = (worldPos.x * 0.5 + 0.5) * rect.width + rect.left;
+              const sy = (-worldPos.y * 0.5 + 0.5) * rect.height + rect.top;
+              if (sx >= minX && sx <= maxX && sy >= minY && sy <= maxY) {
+                matched.push(part.instanceId);
+              }
+            }
+            if (matched.length > 0) {
+              props.onBoxSelect(matched);
+            }
+          }
+        }
+        boxSelectRef.current = null;
+        setBoxSelectRect(null);
+        return;
+      }
+
+      // Part drag/click finalize
       const pending = pendingDragRef.current;
       if (!pending) return;
 
       if (dragState) {
         const target = dropTargetRef.current;
-        props.onMovePart(dragState.instanceId, target.position, target.rotation, target.orientation);
+        // If dragging a part from a multi-selection, move all selected parts by the same delta
+        if (props.selectedPartIds.size > 1 && props.selectedPartIds.has(dragState.instanceId)) {
+          props.onMoveSelectedParts(dragState.instanceId, target.position, target.rotation, target.orientation);
+        } else {
+          props.onMovePart(dragState.instanceId, target.position, target.rotation, target.orientation);
+        }
         setDragState(null);
       } else {
         props.onClickPart(pending.instanceId, e.shiftKey);
@@ -1091,7 +1187,7 @@ export function ViewportCanvas(props: ViewportProps) {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [dragState, props.assembly, props.onMovePart, props.onClickPart]);
+  }, [dragState, boxSelectRect, props.parts, props.assembly, props.onMovePart, props.onClickPart, props.onBoxSelect]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -1148,6 +1244,18 @@ export function ViewportCanvas(props: ViewportProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [props.onEscape, props.onDeleteSelected, props.selectedPartIds, props.mode, isPlacingSupport, rotateAxis, dragState]);
 
+  // Start box-select on shift+pointerdown on empty space
+  const handleViewportPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (props.mode.type !== "select") return;
+      if (!e.shiftKey) return;
+      // If a part was clicked, pendingDragRef is already set — don't start box select
+      if (pendingDragRef.current) return;
+      boxSelectRef.current = { startX: e.clientX, startY: e.clientY };
+    },
+    [props.mode]
+  );
+
   // Hint text
   let hintText: string | null = null;
   if (dragState) {
@@ -1167,6 +1275,7 @@ export function ViewportCanvas(props: ViewportProps) {
     <div
       className="viewport"
       data-placing={props.mode.type === "place" ? props.mode.definitionId : undefined}
+      onPointerDown={handleViewportPointerDown}
     >
       <Canvas
         camera={{ position: [150, 200, 150], fov: 50, near: 1, far: 10000 }}
@@ -1183,8 +1292,20 @@ export function ViewportCanvas(props: ViewportProps) {
           dropTargetRef={dropTargetRef}
           onPartPointerDown={handlePartPointerDown}
           yLift={yLift}
+          boxSelectActive={!!boxSelectRect}
         />
       </Canvas>
+      {boxSelectRect && (
+        <div
+          className="box-select-overlay"
+          style={{
+            left: Math.min(boxSelectRect.x1, boxSelectRect.x2),
+            top: Math.min(boxSelectRect.y1, boxSelectRect.y2),
+            width: Math.abs(boxSelectRect.x2 - boxSelectRect.x1),
+            height: Math.abs(boxSelectRect.y2 - boxSelectRect.y1),
+          }}
+        />
+      )}
       {hintText && (
         <div className="viewport-hint">
           {hintText}

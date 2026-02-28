@@ -303,43 +303,6 @@ test.describe("Ray-based snap proximity", () => {
   });
 });
 
-test.describe("canPlaceIgnoring (drag-to-move)", () => {
-  test("ignores self but blocked by others", async ({ appPage: page }) => {
-    const result = await page.evaluate(() => {
-      const a = (window as any).__assembly;
-      a.clear();
-
-      const id1 = a.addPart("connector-3d6w", [0, 1, 0]);
-      const id2 = a.addPart("connector-3d6w", [2, 1, 0]);
-
-      return {
-        canIgnoreSelf: a.canPlaceIgnoring(
-          "connector-3d6w",
-          [0, 1, 0],
-          [0, 0, 0],
-          id1
-        ),
-        blockedByOther: a.canPlaceIgnoring(
-          "connector-3d6w",
-          [2, 1, 0],
-          [0, 0, 0],
-          id1
-        ),
-        freeCell: a.canPlaceIgnoring(
-          "connector-3d6w",
-          [1, 1, 0],
-          [0, 0, 0],
-          id1
-        ),
-      };
-    });
-
-    expect(result.canIgnoreSelf).toBe(true);
-    expect(result.blockedByOther).toBe(false);
-    expect(result.freeCell).toBe(true);
-  });
-});
-
 test.describe("Move part (programmatic)", () => {
   test("move frees old position and occupies new", async ({
     appPage: page,

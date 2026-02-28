@@ -6,9 +6,9 @@ import { BOMPanel } from "./BOMPanel";
 import { AssemblyState } from "../assembly/AssemblyState";
 import { HistoryManager, type Command } from "../assembly/HistoryManager";
 import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3, ClipboardData } from "../types";
-import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints } from "../assembly/snap";
+import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints, computeAutoRotation } from "../assembly/snap";
 import { computeGroundLift } from "../assembly/grid-utils";
-import { restoreCustomParts, importSTL, isCustomPart } from "../data/custom-parts";
+import { restoreCustomParts, importModelFile, isCustomPart } from "../data/custom-parts";
 import { encodeAssemblyToHash, decodeAssemblyFromHash, hasCustomParts } from "../sharing/url-sharing";
 
 // Global singleton instances
@@ -50,8 +50,9 @@ assembly.subscribe(() => {
 
 // Expose for e2e testing
 (window as any).__assembly = assembly;
-(window as any).__snap = { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints };
-(window as any).__importSTL = importSTL;
+(window as any).__snap = { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints, computeAutoRotation };
+(window as any).__importSTL = importModelFile; // backward compat for e2e
+(window as any).__importModel = importModelFile;
 (window as any).__computeGroundLift = computeGroundLift;
 
 export function App() {
@@ -179,6 +180,61 @@ export function App() {
     []
   );
 
+  const handleMoveSelectedParts = useCallback(
+    (primaryId: string, newPosition: GridPosition, newRotation?: PlacedPart["rotation"], newOrientation?: Axis) => {
+      const primary = assembly.getPartById(primaryId);
+      if (!primary) return;
+
+      const delta: GridPosition = [
+        newPosition[0] - primary.position[0],
+        newPosition[1] - primary.position[1],
+        newPosition[2] - primary.position[2],
+      ];
+      if (delta[0] === 0 && delta[1] === 0 && delta[2] === 0 && !newRotation && !newOrientation) return;
+
+      // Snapshot all selected parts before moving
+      const partsToMove: { id: string; def: string; oldPos: GridPosition; oldRot: Rotation3; oldOrient?: Axis; newPos: GridPosition; newRot: Rotation3; newOrient?: Axis }[] = [];
+      for (const id of selectedPartIds) {
+        const part = assembly.getPartById(id);
+        if (!part) continue;
+        const isPrimary = id === primaryId;
+        partsToMove.push({
+          id,
+          def: part.definitionId,
+          oldPos: part.position,
+          oldRot: part.rotation,
+          oldOrient: part.orientation,
+          newPos: isPrimary ? newPosition : [part.position[0] + delta[0], part.position[1] + delta[1], part.position[2] + delta[2]],
+          newRot: isPrimary ? (newRotation ?? part.rotation) : part.rotation,
+          newOrient: isPrimary ? (newOrientation ?? part.orientation) : part.orientation,
+        });
+      }
+
+      const cmd: Command = {
+        description: `Move ${partsToMove.length} part(s)`,
+        execute() {
+          // Remove all first, then re-add at new positions (avoids collision with each other)
+          for (const p of partsToMove) assembly.removePart(p.id);
+          for (const p of partsToMove) assembly.addPart(p.def, p.newPos, p.newRot, p.newOrient);
+        },
+        undo() {
+          // Remove parts at new positions, re-add at old positions
+          const allParts = assembly.getAllParts();
+          for (const p of partsToMove) {
+            const match = allParts.find(
+              (ap) => ap.definitionId === p.def &&
+                ap.position[0] === p.newPos[0] && ap.position[1] === p.newPos[1] && ap.position[2] === p.newPos[2]
+            );
+            if (match) assembly.removePart(match.instanceId);
+          }
+          for (const p of partsToMove) assembly.addPart(p.def, p.oldPos, p.oldRot, p.oldOrient);
+        },
+      };
+      history.execute(cmd);
+    },
+    [selectedPartIds]
+  );
+
   const handleClickPart = useCallback(
     (instanceId: string, shiftKey: boolean) => {
       if (mode.type === "select") {
@@ -200,6 +256,14 @@ export function App() {
 
   const handleClickEmpty = useCallback(() => {
     setSelectedPartIds(new Set());
+  }, []);
+
+  const handleBoxSelect = useCallback((ids: string[]) => {
+    setSelectedPartIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
   }, []);
 
   const handleEscape = useCallback(() => {
@@ -411,8 +475,10 @@ export function App() {
           assembly={assembly}
           onPlacePart={handlePlacePart}
           onMovePart={handleMovePart}
+          onMoveSelectedParts={handleMoveSelectedParts}
           onClickPart={handleClickPart}
           onClickEmpty={handleClickEmpty}
+          onBoxSelect={handleBoxSelect}
           onDeleteSelected={handleDeleteSelected}
           onPasteParts={handlePasteParts}
           onEscape={handleEscape}

@@ -43,5 +43,6 @@ export const PART_COLORS = {
   ghost_invalid: "#ff4444",
   ghost_snapped: "#00ffcc",
   selected: "#00aaff",
+  other: "#4a9e4a",      // HR_GREEN (misc/other parts)
   custom: "#6b3a7d",
 } as const;

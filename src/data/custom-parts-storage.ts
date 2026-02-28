@@ -8,6 +8,7 @@ export interface CustomPartMeta {
   id: string;
   name: string;
   gridCells: GridPosition[];
+  format?: "stl" | "3mf";
 }
 
 export function saveCustomPartsMeta(parts: CustomPartMeta[]): void {

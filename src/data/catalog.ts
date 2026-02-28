@@ -1,6 +1,7 @@
 import type { PartDefinition, ConnectionPoint, GridPosition } from "../types";
 import { getArmDirections, CONNECTOR_CONFIGS } from "./connector-configs";
 import { getCustomPartDefinition, getCustomParts } from "./custom-parts";
+import rawModelsManifest from "./raw-models-manifest.json";
 
 /** Generate connection points for a connector from its arm config */
 function connectorConnectionPoints(configId: string): ConnectionPoint[] {
@@ -139,6 +140,18 @@ export const PART_CATALOG: PartDefinition[] = [
     connectionPoints: [],
     gridCells: [[0, 0, 0]],
   },
+
+  // Other — raw models converted from raw-models/ directory
+  ...(rawModelsManifest as Array<{ id: string; name: string; file: string; group?: string }>).map((entry): PartDefinition => ({
+    id: entry.id,
+    category: "other",
+    name: entry.name,
+    description: entry.group ? `${entry.group} — ${entry.name}` : entry.name,
+    modelPath: `models/${entry.file}`,
+    connectionPoints: [],
+    gridCells: [[0, 0, 0]],
+    ...(entry.group ? { group: entry.group } : {}),
+  })),
 ];
 
 /** Look up a part definition by ID (checks built-in catalog, then custom parts) */

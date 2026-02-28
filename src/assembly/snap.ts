@@ -1,4 +1,4 @@
-import type { GridPosition, Axis, Direction, Rotation3 } from "../types";
+import type { GridPosition, Axis, Direction, Rotation3, RotationStep } from "../types";
 import type { AssemblyState } from "./AssemblyState";
 import { getPartDefinition } from "../data/catalog";
 import {
@@ -21,6 +21,8 @@ export interface SnapCandidate {
   socketDirection: Direction;
   /** Sort distance (smallest of XZ / ray distance, with 3D tiebreaker) */
   distance: number;
+  /** Auto-computed rotation that best aligns connector arms with nearby supports */
+  autoRotation?: Rotation3;
 }
 
 /** A ray in grid-space coordinates (origin and direction) */
@@ -270,6 +272,71 @@ export function findBestSnap(
   return candidates.length > 0 ? candidates[0] : null;
 }
 
+/** Flip a direction to its opposite */
+function oppositeDir(dir: Direction): Direction {
+  const sign = dir[0] === "+" ? "-" : "+";
+  return `${sign}${dir[1]}` as Direction;
+}
+
+/**
+ * Compute the best rotation for a connector so its arms align with
+ * the given needed directions (directions toward adjacent support endpoints).
+ *
+ * Tries all 64 rotation combinations (4^3), scores by:
+ *   1. Coverage count (higher is better)
+ *   2. Fewest total rotation steps from identity (prefer simpler rotations)
+ */
+export function computeAutoRotation(
+  connectorDefId: string,
+  neededDirections: Direction[],
+  fallbackRotation: Rotation3,
+): Rotation3 {
+  if (neededDirections.length === 0) return fallbackRotation;
+
+  const def = getPartDefinition(connectorDefId);
+  if (!def) return fallbackRotation;
+
+  // Get base arm directions from connection points
+  const baseArmDirs = def.connectionPoints
+    .filter(cp => cp.type === "female")
+    .map(cp => cp.direction);
+
+  if (baseArmDirs.length === 0) return fallbackRotation;
+
+  const STEPS: RotationStep[] = [0, 90, 180, 270];
+  let bestRotation: Rotation3 = fallbackRotation;
+  let bestScore = -1;
+  let bestTotalSteps = Infinity;
+
+  for (const rx of STEPS) {
+    for (const ry of STEPS) {
+      for (const rz of STEPS) {
+        const rotation: Rotation3 = [rx, ry, rz];
+
+        // Rotate all arm directions by this rotation
+        const rotatedArms = baseArmDirs.map(d => rotateDirection(d, rotation));
+
+        // Count how many needed directions are covered
+        let coverage = 0;
+        for (const needed of neededDirections) {
+          if (rotatedArms.includes(needed)) coverage++;
+        }
+
+        // Total rotation steps (lower = simpler)
+        const totalSteps = (rx / 90) + (ry / 90) + (rz / 90);
+
+        if (coverage > bestScore || (coverage === bestScore && totalSteps < bestTotalSteps)) {
+          bestScore = coverage;
+          bestTotalSteps = totalSteps;
+          bestRotation = rotation;
+        }
+      }
+    }
+  }
+
+  return bestRotation;
+}
+
 /**
  * Find the best snap point for a connector near a cursor position.
  */
@@ -282,5 +349,25 @@ export function findBestConnectorSnap(
   connectorRotation?: Rotation3,
 ): SnapCandidate | null {
   const candidates = findConnectorSnapPoints(assembly, connectorDefId, cursorGridPos, snapRadius, ray, connectorRotation);
-  return candidates.length > 0 ? candidates[0] : null;
+  if (candidates.length === 0) return null;
+
+  const best = candidates[0];
+
+  // Collect needed arm directions from all candidates at the same position.
+  // socketDirection is the outward direction of the support endpoint;
+  // the connector arm needs to point in the opposite direction (toward the endpoint).
+  const seen = new Set<Direction>();
+  const neededDirs: Direction[] = [];
+  for (const c of candidates) {
+    if (c.position[0] === best.position[0] && c.position[1] === best.position[1] && c.position[2] === best.position[2]) {
+      const opp = oppositeDir(c.socketDirection);
+      if (!seen.has(opp)) {
+        seen.add(opp);
+        neededDirs.push(opp);
+      }
+    }
+  }
+
+  best.autoRotation = computeAutoRotation(connectorDefId, neededDirs, connectorRotation ?? [0, 0, 0]);
+  return best;
 }

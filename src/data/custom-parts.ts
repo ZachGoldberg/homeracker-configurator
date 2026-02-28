@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { unzipSync } from "three/examples/jsm/libs/fflate.module.js";
 import type { PartDefinition, GridPosition } from "../types";
 import { BASE_UNIT } from "../constants";
 import {
@@ -34,6 +35,7 @@ function persistMeta() {
     id: d.id,
     name: d.name,
     gridCells: d.gridCells,
+    format: d.id.startsWith("custom-3mf-") ? "3mf" as const : "stl" as const,
   }));
   saveCustomPartsMeta(meta);
 }
@@ -145,54 +147,243 @@ function voxelizeGeometry(geometry: THREE.BufferGeometry): {
   return { gridCells, cellsX, cellsY, cellsZ };
 }
 
+type ModelFormat = "stl" | "3mf";
+
 /**
- * Import an STL file and register it as a custom catalog part.
- * Returns the new PartDefinition.
+ * Parse a single 3MF <model> XML string and extract all mesh geometries.
+ * Returns one BufferGeometry per <object> that contains a <mesh>.
  */
-export function importSTL(file: File): Promise<PartDefinition> {
+function parse3MFModelXml(xml: string): { objectId: string; geometry: THREE.BufferGeometry }[] {
+  const doc = new DOMParser().parseFromString(xml, "application/xml");
+  const results: { objectId: string; geometry: THREE.BufferGeometry }[] = [];
+
+  const objects = doc.querySelectorAll("object");
+  for (const obj of objects) {
+    const mesh = obj.querySelector("mesh");
+    if (!mesh) continue;
+
+    const id = obj.getAttribute("id") ?? "0";
+    const vertexNodes = mesh.querySelectorAll("vertices > vertex");
+    const triNodes = mesh.querySelectorAll("triangles > triangle");
+
+    const positions = new Float32Array(vertexNodes.length * 3);
+    for (let i = 0; i < vertexNodes.length; i++) {
+      const v = vertexNodes[i];
+      positions[i * 3] = parseFloat(v.getAttribute("x") ?? "0");
+      positions[i * 3 + 1] = parseFloat(v.getAttribute("y") ?? "0");
+      positions[i * 3 + 2] = parseFloat(v.getAttribute("z") ?? "0");
+    }
+
+    const indices = new Uint32Array(triNodes.length * 3);
+    for (let i = 0; i < triNodes.length; i++) {
+      const t = triNodes[i];
+      indices[i * 3] = parseInt(t.getAttribute("v1") ?? "0", 10);
+      indices[i * 3 + 1] = parseInt(t.getAttribute("v2") ?? "0", 10);
+      indices[i * 3 + 2] = parseInt(t.getAttribute("v3") ?? "0", 10);
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeVertexNormals();
+
+    results.push({ objectId: id, geometry });
+  }
+
+  return results;
+}
+
+/**
+ * Parse a 3MF ZIP archive and return one BufferGeometry per mesh object.
+ * Handles the production extension (p:path) by parsing each .model file separately.
+ */
+function parse3MF(buffer: ArrayBuffer): THREE.BufferGeometry[] {
+  const zip = unzipSync(new Uint8Array(buffer));
+  const decoder = new TextDecoder();
+
+  // Collect all .model files and their mesh objects
+  const allObjects = new Map<string, { objectId: string; geometry: THREE.BufferGeometry }>();
+
+  for (const filename in zip) {
+    if (!filename.match(/\.model$/i)) continue;
+    const xml = decoder.decode(zip[filename]);
+    const meshes = parse3MFModelXml(xml);
+    for (const m of meshes) {
+      // Key by "path:objectId" for cross-model component resolution
+      allObjects.set(`/${filename}:${m.objectId}`, m);
+      // Also store by bare objectId for same-model references
+      allObjects.set(`${filename}:${m.objectId}`, m);
+    }
+  }
+
+  // Find root model and its build items
+  let rootModelPath = "";
+  for (const filename in zip) {
+    if (filename.match(/^_rels\/.rels$/)) {
+      const xml = decoder.decode(zip[filename]);
+      const doc = new DOMParser().parseFromString(xml, "application/xml");
+      const rel = doc.querySelector("Relationship");
+      if (rel) {
+        const target = rel.getAttribute("Target") ?? "";
+        rootModelPath = target.startsWith("/") ? target.substring(1) : target;
+      }
+    }
+  }
+
+  if (!rootModelPath || !zip[rootModelPath]) {
+    // No rels — just return all mesh objects found
+    return [...allObjects.values()].map((o) => o.geometry);
+  }
+
+  const rootXml = decoder.decode(zip[rootModelPath]);
+  const rootDoc = new DOMParser().parseFromString(rootXml, "application/xml");
+
+  // Resolve build items: each <item objectid="X"> in the root model's <build>
+  const buildItems = rootDoc.querySelectorAll("build > item");
+  if (buildItems.length === 0) {
+    // No build section — return all mesh objects
+    return [...allObjects.values()].map((o) => o.geometry);
+  }
+
+  const results: THREE.BufferGeometry[] = [];
+  const rootObjects = rootDoc.querySelectorAll("object");
+
+  for (const item of buildItems) {
+    const objectId = item.getAttribute("objectid");
+    if (!objectId) continue;
+
+    // Find the object in the root model
+    const obj = Array.from(rootObjects).find((o) => o.getAttribute("id") === objectId);
+    if (!obj) continue;
+
+    // Direct mesh in root model?
+    const directKey = `${rootModelPath}:${objectId}`;
+    if (allObjects.has(directKey)) {
+      results.push(allObjects.get(directKey)!.geometry);
+      continue;
+    }
+
+    // Composite with p:path references?
+    const components = obj.querySelectorAll("components > component");
+    for (const comp of components) {
+      const pPath = comp.getAttribute("p:path") ?? comp.getAttributeNS(
+        "http://schemas.microsoft.com/3dmanufacturing/production/2015/06", "path"
+      );
+      const compObjectId = comp.getAttribute("objectid");
+      if (!compObjectId) continue;
+
+      if (pPath) {
+        // Resolve external model reference
+        const resolvedPath = pPath.startsWith("/") ? pPath.substring(1) : pPath;
+        const key = `${resolvedPath}:${compObjectId}`;
+        const entry = allObjects.get(key);
+        if (entry) results.push(entry.geometry);
+      } else {
+        // Same-model reference
+        const key = `${rootModelPath}:${compObjectId}`;
+        const entry = allObjects.get(key);
+        if (entry) results.push(entry.geometry);
+      }
+    }
+  }
+
+  if (results.length === 0) {
+    // Fallback: return all mesh objects found in any model file
+    return [...allObjects.values()].map((o) => o.geometry);
+  }
+
+  return results;
+}
+
+/** Parse a stored buffer back into a single geometry for restore. */
+function parseStoredBuffer(buffer: ArrayBuffer, format: ModelFormat): THREE.BufferGeometry {
+  if (format === "3mf") {
+    const geometries = parse3MF(buffer);
+    if (geometries.length === 0) throw new Error("3MF file contains no mesh geometry");
+    return geometries[0]; // Restore uses the first geometry (each part stored separately)
+  }
+  return stlLoader.parse(buffer);
+}
+
+/** Detect format from filename extension. */
+function detectFormat(filename: string): ModelFormat {
+  return filename.toLowerCase().endsWith(".3mf") ? "3mf" : "stl";
+}
+
+/**
+ * Register a single geometry as a custom part and persist it.
+ */
+async function registerCustomPart(
+  name: string,
+  format: ModelFormat,
+  geometry: THREE.BufferGeometry,
+  buffer: ArrayBuffer,
+): Promise<PartDefinition> {
+  const { gridCells, cellsX, cellsY, cellsZ } = voxelizeGeometry(geometry);
+  geometry.center();
+
+  const id = `custom-${format}-${nextId++}`;
+  const def: PartDefinition = {
+    id,
+    category: "custom",
+    name,
+    description: `Imported ${format.toUpperCase()} (${cellsX}x${cellsY}x${cellsZ} units)`,
+    modelPath: "",
+    connectionPoints: [],
+    gridCells,
+  };
+
+  geometryStore.set(id, geometry);
+  customDefinitions.push(def);
+  notify();
+
+  await saveSTLBuffer(id, buffer);
+  persistMeta();
+
+  return def;
+}
+
+/**
+ * Import a 3D model file (STL or 3MF) and register it as custom catalog part(s).
+ * STL produces one part. 3MF may produce multiple parts (one per mesh object).
+ * Returns the array of new PartDefinitions.
+ */
+export function importModelFile(file: File): Promise<PartDefinition[]> {
+  const format = detectFormat(file.name);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
         const buffer = reader.result as ArrayBuffer;
-        const geometry = stlLoader.parse(buffer);
+        const baseName = file.name.replace(/\.(stl|3mf)$/i, "");
 
-        // Voxelize: only include cells with actual geometry
-        const { gridCells, cellsX, cellsY, cellsZ } = voxelizeGeometry(geometry);
+        if (format === "stl") {
+          const geometry = stlLoader.parse(buffer);
+          const def = await registerCustomPart(baseName, format, geometry, buffer);
+          resolve([def]);
+        } else {
+          const geometries = parse3MF(buffer);
+          if (geometries.length === 0) throw new Error("3MF file contains no mesh geometry");
 
-        // Center geometry at origin for consistent rendering
-        geometry.center();
-
-        const name = file.name.replace(/\.stl$/i, "");
-        const id = `custom-stl-${nextId++}`;
-
-        const def: PartDefinition = {
-          id,
-          category: "custom",
-          name,
-          description: `Imported STL (${cellsX}x${cellsY}x${cellsZ} units)`,
-          modelPath: "", // Not used — geometry is in the store
-          connectionPoints: [],
-          gridCells,
-        };
-
-        geometryStore.set(id, geometry);
-        customDefinitions.push(def);
-        notify();
-
-        // Persist to IndexedDB + localStorage
-        await saveSTLBuffer(id, buffer);
-        persistMeta();
-
-        resolve(def);
+          const defs: PartDefinition[] = [];
+          for (let i = 0; i < geometries.length; i++) {
+            const name = geometries.length === 1 ? baseName : `${baseName} (${i + 1})`;
+            const def = await registerCustomPart(name, format, geometries[i], buffer);
+            defs.push(def);
+          }
+          resolve(defs);
+        }
       } catch (err) {
-        reject(new Error(`Failed to parse STL: ${err}`));
+        reject(new Error(`Failed to parse ${format.toUpperCase()}: ${err}`));
       }
     };
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsArrayBuffer(file);
   });
 }
+
+/** @deprecated Use importModelFile instead. */
+export const importSTL = importModelFile;
 
 /**
  * Restore custom parts from IndexedDB + localStorage.
@@ -214,7 +405,9 @@ export async function restoreCustomParts(): Promise<void> {
     if (!buffer) continue; // Binary lost — skip this part
 
     try {
-      const geometry = stlLoader.parse(buffer);
+      const format: ModelFormat =
+        entry.format ?? (entry.id.startsWith("custom-3mf-") ? "3mf" : "stl");
+      const geometry = parseStoredBuffer(buffer, format);
 
       // Re-voxelize from actual geometry (fixes stale bounding-box cells from old saves)
       const { gridCells } = voxelizeGeometry(geometry);
@@ -225,7 +418,7 @@ export async function restoreCustomParts(): Promise<void> {
         id: entry.id,
         category: "custom",
         name: entry.name,
-        description: `Imported STL (${gridCells.length} cells)`,
+        description: `Imported ${format.toUpperCase()} (${gridCells.length} cells)`,
         modelPath: "",
         connectionPoints: [],
         gridCells,
@@ -240,7 +433,7 @@ export async function restoreCustomParts(): Promise<void> {
 
   // Set nextId past any restored IDs to avoid collisions
   for (const entry of meta) {
-    const match = entry.id.match(/^custom-stl-(\d+)$/);
+    const match = entry.id.match(/^custom-(?:stl|3mf)-(\d+)$/);
     if (match) {
       const num = parseInt(match[1], 10);
       if (num >= nextId) nextId = num + 1;

@@ -33,8 +33,8 @@ test.describe("Catalog", () => {
       }));
     });
 
-    // 18 supports + 9 connectors + 7 foot connectors + 20 PT base + 11 PT foot + 2 lock pins = 67
-    expect(catalogItems.length).toBe(67);
+    // 18 supports + 9 connectors + 7 foot connectors + 20 PT base + 11 PT foot + 2 lock pins + 9 other = 76
+    expect(catalogItems.length).toBe(76);
     expect(catalogItems.every((i) => !i.active)).toBe(true);
   });
 
