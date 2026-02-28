@@ -153,9 +153,9 @@ type ModelFormat = "stl" | "3mf";
  * Parse a single 3MF <model> XML string and extract all mesh geometries.
  * Returns one BufferGeometry per <object> that contains a <mesh>.
  */
-function parse3MFModelXml(xml: string): { objectId: string; geometry: THREE.BufferGeometry }[] {
+function parse3MFModelXml(xml: string): { objectId: string; name?: string; geometry: THREE.BufferGeometry }[] {
   const doc = new DOMParser().parseFromString(xml, "application/xml");
-  const results: { objectId: string; geometry: THREE.BufferGeometry }[] = [];
+  const results: { objectId: string; name?: string; geometry: THREE.BufferGeometry }[] = [];
 
   const objects = doc.querySelectorAll("object");
   for (const obj of objects) {
@@ -163,6 +163,7 @@ function parse3MFModelXml(xml: string): { objectId: string; geometry: THREE.Buff
     if (!mesh) continue;
 
     const id = obj.getAttribute("id") ?? "0";
+    const name = obj.getAttribute("name") || undefined;
     const vertexNodes = mesh.querySelectorAll("vertices > vertex");
     const triNodes = mesh.querySelectorAll("triangles > triangle");
 
@@ -187,7 +188,7 @@ function parse3MFModelXml(xml: string): { objectId: string; geometry: THREE.Buff
     geometry.setIndex(new THREE.BufferAttribute(indices, 1));
     geometry.computeVertexNormals();
 
-    results.push({ objectId: id, geometry });
+    results.push({ objectId: id, name, geometry });
   }
 
   return results;
@@ -197,12 +198,12 @@ function parse3MFModelXml(xml: string): { objectId: string; geometry: THREE.Buff
  * Parse a 3MF ZIP archive and return one BufferGeometry per mesh object.
  * Handles the production extension (p:path) by parsing each .model file separately.
  */
-function parse3MF(buffer: ArrayBuffer): THREE.BufferGeometry[] {
+function parse3MF(buffer: ArrayBuffer): { geometry: THREE.BufferGeometry; name?: string }[] {
   const zip = unzipSync(new Uint8Array(buffer));
   const decoder = new TextDecoder();
 
   // Collect all .model files and their mesh objects
-  const allObjects = new Map<string, { objectId: string; geometry: THREE.BufferGeometry }>();
+  const allObjects = new Map<string, { objectId: string; name?: string; geometry: THREE.BufferGeometry }>();
 
   for (const filename in zip) {
     if (!filename.match(/\.model$/i)) continue;
@@ -232,7 +233,7 @@ function parse3MF(buffer: ArrayBuffer): THREE.BufferGeometry[] {
 
   if (!rootModelPath || !zip[rootModelPath]) {
     // No rels — just return all mesh objects found
-    return [...allObjects.values()].map((o) => o.geometry);
+    return [...allObjects.values()].map((o) => ({ geometry: o.geometry, name: o.name }));
   }
 
   const rootXml = decoder.decode(zip[rootModelPath]);
@@ -242,10 +243,10 @@ function parse3MF(buffer: ArrayBuffer): THREE.BufferGeometry[] {
   const buildItems = rootDoc.querySelectorAll("build > item");
   if (buildItems.length === 0) {
     // No build section — return all mesh objects
-    return [...allObjects.values()].map((o) => o.geometry);
+    return [...allObjects.values()].map((o) => ({ geometry: o.geometry, name: o.name }));
   }
 
-  const results: THREE.BufferGeometry[] = [];
+  const results: { geometry: THREE.BufferGeometry; name?: string }[] = [];
   const rootObjects = rootDoc.querySelectorAll("object");
 
   for (const item of buildItems) {
@@ -256,10 +257,14 @@ function parse3MF(buffer: ArrayBuffer): THREE.BufferGeometry[] {
     const obj = Array.from(rootObjects).find((o) => o.getAttribute("id") === objectId);
     if (!obj) continue;
 
+    // Name priority: root object name attribute
+    const rootObjName = obj.getAttribute("name") || undefined;
+
     // Direct mesh in root model?
     const directKey = `${rootModelPath}:${objectId}`;
     if (allObjects.has(directKey)) {
-      results.push(allObjects.get(directKey)!.geometry);
+      const entry = allObjects.get(directKey)!;
+      results.push({ geometry: entry.geometry, name: rootObjName ?? entry.name });
       continue;
     }
 
@@ -277,19 +282,19 @@ function parse3MF(buffer: ArrayBuffer): THREE.BufferGeometry[] {
         const resolvedPath = pPath.startsWith("/") ? pPath.substring(1) : pPath;
         const key = `${resolvedPath}:${compObjectId}`;
         const entry = allObjects.get(key);
-        if (entry) results.push(entry.geometry);
+        if (entry) results.push({ geometry: entry.geometry, name: rootObjName ?? entry.name });
       } else {
         // Same-model reference
         const key = `${rootModelPath}:${compObjectId}`;
         const entry = allObjects.get(key);
-        if (entry) results.push(entry.geometry);
+        if (entry) results.push({ geometry: entry.geometry, name: rootObjName ?? entry.name });
       }
     }
   }
 
   if (results.length === 0) {
     // Fallback: return all mesh objects found in any model file
-    return [...allObjects.values()].map((o) => o.geometry);
+    return [...allObjects.values()].map((o) => ({ geometry: o.geometry, name: o.name }));
   }
 
   return results;
@@ -300,7 +305,7 @@ function parseStoredBuffer(buffer: ArrayBuffer, format: ModelFormat): THREE.Buff
   if (format === "3mf") {
     const geometries = parse3MF(buffer);
     if (geometries.length === 0) throw new Error("3MF file contains no mesh geometry");
-    return geometries[0]; // Restore uses the first geometry (each part stored separately)
+    return geometries[0].geometry; // Restore uses the first geometry (each part stored separately)
   }
   return stlLoader.parse(buffer);
 }
@@ -362,13 +367,16 @@ export function importModelFile(file: File): Promise<PartDefinition[]> {
           const def = await registerCustomPart(baseName, format, geometry, buffer);
           resolve([def]);
         } else {
-          const geometries = parse3MF(buffer);
-          if (geometries.length === 0) throw new Error("3MF file contains no mesh geometry");
+          const parts = parse3MF(buffer);
+          if (parts.length === 0) throw new Error("3MF file contains no mesh geometry");
 
           const defs: PartDefinition[] = [];
-          for (let i = 0; i < geometries.length; i++) {
-            const name = geometries.length === 1 ? baseName : `${baseName} (${i + 1})`;
-            const def = await registerCustomPart(name, format, geometries[i], buffer);
+          for (let i = 0; i < parts.length; i++) {
+            const objName = parts[i].name;
+            const partLabel = objName
+              ? `${baseName} - ${objName}`
+              : parts.length === 1 ? baseName : `${baseName} (${i + 1})`;
+            const def = await registerCustomPart(partLabel, format, parts[i].geometry, buffer);
             defs.push(def);
           }
           resolve(defs);

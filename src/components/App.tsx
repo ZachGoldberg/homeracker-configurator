@@ -237,6 +237,65 @@ export function App() {
     [selectedPartIds]
   );
 
+  const handleNudgeParts = useCallback(
+    (dx: number, dy: number, dz: number) => {
+      if (selectedPartIds.size === 0) return;
+
+      const partsToNudge: { id: string; def: string; oldPos: GridPosition; rot: Rotation3; orient?: Axis; color?: string }[] = [];
+      for (const id of selectedPartIds) {
+        const part = assembly.getPartById(id);
+        if (!part) continue;
+        partsToNudge.push({
+          id,
+          def: part.definitionId,
+          oldPos: part.position,
+          rot: part.rotation,
+          orient: part.orientation,
+          color: part.color,
+        });
+      }
+      if (partsToNudge.length === 0) return;
+
+      const cmd: Command = {
+        description: `Nudge ${partsToNudge.length} part(s)`,
+        execute() {
+          for (const p of partsToNudge) assembly.removePart(p.id);
+          for (const p of partsToNudge) {
+            const newPos: GridPosition = [p.oldPos[0] + dx, p.oldPos[1] + dy, p.oldPos[2] + dz];
+            assembly.addPart(p.def, newPos, p.rot, p.orient, p.color);
+          }
+        },
+        undo() {
+          // Remove parts at nudged positions, re-add at original positions
+          const allParts = assembly.getAllParts();
+          for (const p of partsToNudge) {
+            const newPos: GridPosition = [p.oldPos[0] + dx, p.oldPos[1] + dy, p.oldPos[2] + dz];
+            const match = allParts.find(
+              (ap) => ap.definitionId === p.def &&
+                ap.position[0] === newPos[0] && ap.position[1] === newPos[1] && ap.position[2] === newPos[2]
+            );
+            if (match) assembly.removePart(match.instanceId);
+          }
+          for (const p of partsToNudge) assembly.addPart(p.def, p.oldPos, p.rot, p.orient, p.color);
+        },
+      };
+      history.execute(cmd);
+      // Re-select nudged parts (they get new IDs after remove+add)
+      const allParts = assembly.getAllParts();
+      const newIds = new Set<string>();
+      for (const p of partsToNudge) {
+        const newPos: GridPosition = [p.oldPos[0] + dx, p.oldPos[1] + dy, p.oldPos[2] + dz];
+        const match = allParts.find(
+          (ap) => ap.definitionId === p.def &&
+            ap.position[0] === newPos[0] && ap.position[1] === newPos[1] && ap.position[2] === newPos[2]
+        );
+        if (match) newIds.add(match.instanceId);
+      }
+      setSelectedPartIds(newIds);
+    },
+    [selectedPartIds]
+  );
+
   const handleClickPart = useCallback(
     (instanceId: string, shiftKey: boolean) => {
       if (mode.type === "select") {
@@ -513,6 +572,7 @@ export function App() {
           onClickPart={handleClickPart}
           onClickEmpty={handleClickEmpty}
           onBoxSelect={handleBoxSelect}
+          onNudgeParts={handleNudgeParts}
           onDeleteSelected={handleDeleteSelected}
           onPasteParts={handlePasteParts}
           onEscape={handleEscape}

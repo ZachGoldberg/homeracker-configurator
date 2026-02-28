@@ -41,6 +41,7 @@ interface ViewportProps {
   onDeleteSelected: () => void;
   onPasteParts: (clipboard: ClipboardData, targetPosition: GridPosition) => void;
   onBoxSelect: (ids: string[]) => void;
+  onNudgeParts: (dx: number, dy: number, dz: number) => void;
   onEscape: () => void;
   flashPartId: string | null;
   snapEnabled: boolean;
@@ -1283,6 +1284,17 @@ export function ViewportCanvas(props: ViewportProps) {
           case "w": setYLift((prev) => prev + 1); break;
           case "s": setYLift((prev) => Math.max(0, prev - 1)); break;
         }
+      } else if (props.mode.type === "select" && props.selectedPartIds.size > 0) {
+        // Arrow key nudge and W/S lift for selected parts
+        const fine = e.shiftKey ? 0.1 : 1;
+        switch (e.key) {
+          case "ArrowLeft":  e.preventDefault(); props.onNudgeParts(-fine, 0, 0); break;
+          case "ArrowRight": e.preventDefault(); props.onNudgeParts(fine, 0, 0); break;
+          case "ArrowUp":    e.preventDefault(); props.onNudgeParts(0, 0, -fine); break;
+          case "ArrowDown":  e.preventDefault(); props.onNudgeParts(0, 0, fine); break;
+          case "w": case "W": props.onNudgeParts(0, fine, 0); break;
+          case "s": case "S": props.onNudgeParts(0, -fine, 0); break;
+        }
       } else if (props.mode.type === "place") {
         switch (e.key.toLowerCase()) {
           case "r": rotateAxis(1); break;
@@ -1300,7 +1312,7 @@ export function ViewportCanvas(props: ViewportProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [props.onEscape, props.onDeleteSelected, props.selectedPartIds, props.mode, isPlacingSupport, rotateAxis, dragState]);
+  }, [props.onEscape, props.onDeleteSelected, props.onNudgeParts, props.selectedPartIds, props.mode, isPlacingSupport, rotateAxis, dragState]);
 
   // Start box-select on shift+pointerdown on empty space
   const handleViewportPointerDown = useCallback(
@@ -1325,6 +1337,8 @@ export function ViewportCanvas(props: ViewportProps) {
     hintText = isPlacingSupport
       ? "Click to place · T(X) R(Y) F(Z) rotate · O orientation · W/S raise/lower · Esc cancel"
       : "Click to place · T(X) R(Y) F(Z) rotate · W/S raise/lower · Esc cancel";
+  } else if (props.mode.type === "select" && props.selectedPartIds.size > 0) {
+    hintText = "Arrow keys nudge · Shift+arrow fine nudge · ctrl-c/v copy/paste - Del delete · Esc deselect";
   } else if (props.mode.type === "paste") {
     hintText = `Click to paste ${props.mode.clipboard.parts.length} part(s) · Esc cancel`;
   }
