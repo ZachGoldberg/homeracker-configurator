@@ -1,0 +1,113 @@
+import { test, expect } from "./fixtures";
+
+test.describe("Pull-through connector collision", () => {
+  test("PT connector can be placed on a support along the matching axis", async ({
+    appPage: page,
+  }) => {
+    // Place a support at [0,0,0] oriented along Z
+    const supportId = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      a.clear();
+      return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "z");
+    });
+    expect(supportId).toBeTruthy();
+
+    // Place a PT-Z connector at [0,0,0] — should succeed (Z support through Z tunnel)
+    const ptId = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      return a.addPart("connector-2d2w-pt-z", [0, 0, 0], [0, 0, 0]);
+    });
+    expect(ptId).toBeTruthy();
+  });
+
+  test("support can be placed through an existing PT connector", async ({
+    appPage: page,
+  }) => {
+    // Place a PT-Z connector at [0,0,0]
+    const ptId = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      a.clear();
+      return a.addPart("connector-2d2w-pt-z", [0, 0, 0], [0, 0, 0]);
+    });
+    expect(ptId).toBeTruthy();
+
+    // Place a support along Z at the same cell — should succeed
+    const supportId = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "z");
+    });
+    expect(supportId).toBeTruthy();
+  });
+
+  test("PT connector is blocked when support axis does not match PT axis", async ({
+    appPage: page,
+  }) => {
+    // Place a support at [0,0,0] oriented along X
+    await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      a.clear();
+      return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "x");
+    });
+
+    // Place a PT-Z connector at [0,0,0] — should fail (X support vs Z tunnel)
+    const ptId = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      return a.addPart("connector-2d2w-pt-z", [0, 0, 0], [0, 0, 0]);
+    });
+    expect(ptId).toBeNull();
+  });
+
+  test("regular connector is still blocked from overlapping supports", async ({
+    appPage: page,
+  }) => {
+    // Place a support at [0,0,0] oriented along Z
+    await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      a.clear();
+      return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "z");
+    });
+
+    // Place a regular (non-PT) connector at [0,0,0] — should fail
+    const connId = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      return a.addPart("connector-2d2w", [0, 0, 0], [0, 0, 0]);
+    });
+    expect(connId).toBeNull();
+  });
+
+  test("PT connector respects rotation when checking axis match", async ({
+    appPage: page,
+  }) => {
+    // Place a support along X
+    await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      a.clear();
+      return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "x");
+    });
+
+    // PT-Z connector rotated 90° around Y → effective PT axis becomes X
+    const ptId = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      return a.addPart("connector-2d2w-pt-z", [0, 0, 0], [0, 90, 0]);
+    });
+    expect(ptId).toBeTruthy();
+  });
+
+  test("PT connector rotation mismatch is still blocked", async ({
+    appPage: page,
+  }) => {
+    // Place a support along Y
+    await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      a.clear();
+      return a.addPart("support-2u", [0, 0, 0], [0, 0, 0], "y");
+    });
+
+    // PT-Z connector rotated 90° around Y → effective PT axis is X, not Y
+    const ptId = await page.evaluate(() => {
+      const a = (window as any).__assembly;
+      return a.addPart("connector-2d2w-pt-z", [0, 0, 0], [0, 90, 0]);
+    });
+    expect(ptId).toBeNull();
+  });
+});

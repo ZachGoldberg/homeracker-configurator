@@ -1,7 +1,11 @@
-import type { BOMEntry } from "../types";
+import type { BOMEntry, PlacedPart } from "../types";
+import { getPartDefinition } from "../data/catalog";
 
 interface BOMPanelProps {
   entries: BOMEntry[];
+  selectedPartIds: Set<string>;
+  parts: PlacedPart[];
+  onFlashPart: (instanceId: string) => void;
 }
 
 function exportCSV(entries: BOMEntry[]) {
@@ -19,8 +23,10 @@ function exportCSV(entries: BOMEntry[]) {
   URL.revokeObjectURL(url);
 }
 
-export function BOMPanel({ entries }: BOMPanelProps) {
+export function BOMPanel({ entries, selectedPartIds, parts, onFlashPart }: BOMPanelProps) {
   const totalParts = entries.reduce((sum, e) => sum + e.quantity, 0);
+
+  const selectedParts = parts.filter((p) => selectedPartIds.has(p.instanceId));
 
   return (
     <div className="bom-panel">
@@ -62,6 +68,26 @@ export function BOMPanel({ entries }: BOMPanelProps) {
           </table>
           <div className="bom-total">Total: {totalParts} parts</div>
         </>
+      )}
+
+      {selectedParts.length > 0 && (
+        <div className="selection-panel">
+          <h3>Selected ({selectedParts.length})</h3>
+          <ul className="selection-list">
+            {selectedParts.map((p) => {
+              const def = getPartDefinition(p.definitionId);
+              return (
+                <li
+                  key={p.instanceId}
+                  className="selection-item"
+                  onClick={() => onFlashPart(p.instanceId)}
+                >
+                  {def?.name ?? p.definitionId}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </div>
   );

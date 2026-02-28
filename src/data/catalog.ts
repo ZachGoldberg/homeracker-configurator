@@ -54,6 +54,7 @@ function connectorDef(
     modelPath: `models/connector-${configId}${footSuffix}${ptSuffix}.glb`,
     connectionPoints: connectorConnectionPoints(configId),
     gridCells: [[0, 0, 0]],
+    pullThroughAxis: pullThroughAxis,
   };
 }
 

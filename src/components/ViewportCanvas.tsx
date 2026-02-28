@@ -22,6 +22,7 @@ interface ViewportProps {
   onDeleteSelected: () => void;
   onPasteParts: (clipboard: ClipboardData, targetPosition: GridPosition) => void;
   onEscape: () => void;
+  flashPartId: string | null;
 }
 
 /** Convert grid coordinates to world position (mm).
@@ -72,24 +73,26 @@ function PartMesh({
   isSelected,
   isDragging,
   isPlacing,
+  isFlashing,
   onPointerDown,
 }: {
   part: PlacedPart;
   isSelected: boolean;
   isDragging: boolean;
   isPlacing: boolean;
+  isFlashing: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId);
   if (!def) return null;
 
   if (isCustomPart(part.definitionId)) {
-    return <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} onPointerDown={onPointerDown} />;
+    return <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} onPointerDown={onPointerDown} />;
   }
 
   return (
     <Suspense fallback={<PartMeshFallback part={part} isSelected={isSelected} onClick={() => { }} />}>
-      <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} onPointerDown={onPointerDown} />
+      <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} onPointerDown={onPointerDown} />
     </Suspense>
   );
 }
@@ -100,12 +103,14 @@ function CustomPartMesh({
   isSelected,
   isDragging,
   isPlacing,
+  isFlashing,
   onPointerDown,
 }: {
   part: PlacedPart;
   isSelected: boolean;
   isDragging: boolean;
   isPlacing: boolean;
+  isFlashing: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId)!;
@@ -117,6 +122,23 @@ function CustomPartMesh({
   // Compute offset from ROTATED cells so it stays correct after rotation
   const rotatedCells = rotateGridCells(def.gridCells, part.rotation);
   const offset = modelCenterOffset({ gridCells: rotatedCells });
+  const flashRef = useRef<THREE.MeshStandardMaterial>(null);
+  const flashStart = useRef(0);
+
+  useFrame(({ clock }) => {
+    if (!flashRef.current) return;
+    if (isFlashing) {
+      if (flashStart.current === 0) flashStart.current = clock.elapsedTime;
+      const t = clock.elapsedTime - flashStart.current;
+      const pulse = Math.sin(t * 10) * 0.5 + 0.5; // fast oscillation
+      flashRef.current.emissiveIntensity = pulse * 0.8;
+      flashRef.current.emissive = new THREE.Color(0xffffff);
+    } else {
+      flashStart.current = 0;
+      flashRef.current.emissiveIntensity = 0;
+    }
+  });
+
   const color = isSelected ? PART_COLORS.selected : PART_COLORS.custom;
   const opacity = isDragging ? 0.3 : 1;
 
@@ -133,7 +155,7 @@ function CustomPartMesh({
       <group position={offset}>
         <group rotation={partEuler}>
           <mesh geometry={geometry}>
-            <meshStandardMaterial color={color} roughness={1} metalness={0} transparent={isDragging} opacity={opacity} />
+            <meshStandardMaterial ref={flashRef} color={color} roughness={1} metalness={0} transparent={isDragging} opacity={opacity} />
           </mesh>
         </group>
       </group>
@@ -153,12 +175,14 @@ function PartMeshLoaded({
   isSelected,
   isDragging,
   isPlacing,
+  isFlashing,
   onPointerDown,
 }: {
   part: PlacedPart;
   isSelected: boolean;
   isDragging: boolean;
   isPlacing: boolean;
+  isFlashing: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId)!;
@@ -167,23 +191,62 @@ function PartMeshLoaded({
   const worldPos = gridToWorld(part.position);
   const groupRef = useRef<THREE.Group>(null);
 
-  // Apply selection highlight or drag dimming
+  // Store original materials so we can restore them on deselect
+  const originalMaterials = useRef<WeakMap<THREE.Mesh, THREE.Material>>(new WeakMap());
+
+  // Apply selection highlight or drag dimming (skip while flashing — useFrame handles that)
   useEffect(() => {
-    if (!groupRef.current) return;
+    if (!groupRef.current || isFlashing) return;
     groupRef.current.traverse((child) => {
       if (child instanceof THREE.Mesh) {
+        // Save original material on first encounter
+        if (!originalMaterials.current.has(child)) {
+          originalMaterials.current.set(child, child.material);
+        }
         if (isDragging) {
-          child.material = child.material.clone();
-          child.material.transparent = true;
-          child.material.opacity = 0.3;
+          const mat = (originalMaterials.current.get(child) ?? child.material).clone();
+          mat.transparent = true;
+          mat.opacity = 0.3;
+          child.material = mat;
         } else if (isSelected) {
-          child.material = child.material.clone();
-          child.material.emissive = new THREE.Color(PART_COLORS.selected);
-          child.material.emissiveIntensity = 0.3;
+          const mat = (originalMaterials.current.get(child) ?? child.material).clone();
+          mat.emissive = new THREE.Color(PART_COLORS.selected);
+          mat.emissiveIntensity = 0.3;
+          child.material = mat;
+        } else {
+          // Restore original material
+          const orig = originalMaterials.current.get(child);
+          if (orig) child.material = orig;
         }
       }
     });
-  }, [isSelected, isDragging]);
+  }, [isSelected, isDragging, isFlashing]);
+
+  // Flash animation for "find part" from selection panel
+  const flashStart = useRef(0);
+  useFrame(({ clock }) => {
+    if (!groupRef.current) return;
+    if (isFlashing) {
+      if (flashStart.current === 0) flashStart.current = clock.elapsedTime;
+      const t = clock.elapsedTime - flashStart.current;
+      const pulse = Math.sin(t * 10) * 0.5 + 0.5;
+      groupRef.current.traverse((child) => {
+        if (child instanceof THREE.Mesh && child.material?.emissive) {
+          child.material.emissive = new THREE.Color(0xffffff);
+          child.material.emissiveIntensity = pulse * 0.8;
+        }
+      });
+    } else if (flashStart.current !== 0) {
+      flashStart.current = 0;
+      // Restore: re-trigger the selection/deselect effect
+      groupRef.current.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          const orig = originalMaterials.current.get(child);
+          if (orig) child.material = orig;
+        }
+      });
+    }
+  });
 
   const partEuler = degreesToEuler(part.rotation);
   const orientEuler = degreesToEuler(orientationToRotation(part.orientation ?? "y"));
@@ -858,6 +921,7 @@ function Scene({
   dropTargetRef,
   onPartPointerDown,
   yLift,
+  flashPartId,
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
 
@@ -935,6 +999,7 @@ function Scene({
           isSelected={selectedPartIds.has(part.instanceId)}
           isDragging={dragState?.instanceId === part.instanceId}
           isPlacing={mode.type === "place"}
+          isFlashing={flashPartId === part.instanceId}
           onPointerDown={(e) => onPartPointerDown(part.instanceId, e.nativeEvent)}
         />
       ))}
@@ -1028,7 +1093,7 @@ export function ViewportCanvas(props: ViewportProps) {
   // Handle pointer down on a part — records pending drag start
   const handlePartPointerDown = useCallback(
     (instanceId: string, nativeEvent: PointerEvent) => {
-      if (props.mode.type === "place") return;
+      if (props.mode.type !== "select") return;
       pendingDragRef.current = {
         instanceId,
         startX: nativeEvent.clientX,

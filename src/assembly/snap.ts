@@ -215,8 +215,9 @@ export function findConnectorSnapPoints(
       // Skip below-ground
       if (connectorPos[1] < 0) continue;
 
-      // Skip if position is already occupied
-      if (assembly.isOccupied(connectorPos)) continue;
+      // Skip if position is already occupied (PT connectors can overlap supports, so skip this check for them)
+      const connDef = getPartDefinition(connectorDefId);
+      if (!connDef?.pullThroughAxis && assembly.isOccupied(connectorPos)) continue;
 
       const { distance, filterDist } = snapDistance(cursorGridPos, connectorPos, ray);
       if (filterDist > maxDistance) continue;

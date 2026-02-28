@@ -59,6 +59,12 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [mode, setMode] = useState<InteractionMode>({ type: "select" });
   const [selectedPartIds, setSelectedPartIds] = useState<Set<string>>(new Set());
+  const [flashPartId, setFlashPartId] = useState<string | null>(null);
+
+  const handleFlashPart = useCallback((instanceId: string) => {
+    setFlashPartId(instanceId);
+    setTimeout(() => setFlashPartId(null), 600);
+  }, []);
 
   // Wait for custom parts + assembly restore before rendering
   useEffect(() => {
@@ -194,18 +200,16 @@ export function App() {
   );
 
   const handleClickEmpty = useCallback(() => {
-    if (mode.type === "select") {
-      setSelectedPartIds(new Set());
-    }
-  }, [mode]);
+    setSelectedPartIds(new Set());
+  }, []);
 
   const handleEscape = useCallback(() => {
     setMode({ type: "select" });
     setSelectedPartIds(new Set());
   }, []);
 
-  const handleUndo = useCallback(() => history.undo(), []);
-  const handleRedo = useCallback(() => history.redo(), []);
+  const handleUndo = useCallback(() => { history.undo(); setSelectedPartIds(new Set()); }, []);
+  const handleRedo = useCallback(() => { history.redo(); setSelectedPartIds(new Set()); }, []);
 
   const handleCopy = useCallback(() => {
     if (selectedPartIds.size === 0) return;
@@ -415,9 +419,10 @@ export function App() {
           onDeleteSelected={handleDeleteSelected}
           onPasteParts={handlePasteParts}
           onEscape={handleEscape}
+          flashPartId={flashPartId}
         />
       </div>
-      <BOMPanel entries={bom} />
+      <BOMPanel entries={bom} selectedPartIds={selectedPartIds} parts={snapshot.parts} onFlashPart={handleFlashPart} />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

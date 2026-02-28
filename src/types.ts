@@ -32,6 +32,8 @@ export interface PartDefinition {
   connectionPoints: ConnectionPoint[];
   /** Grid cells this part occupies relative to its origin */
   gridCells: GridPosition[];
+  /** For pull-through connectors: which axis supports can pass through (before rotation) */
+  pullThroughAxis?: Axis;
 }
 
 /** Rotation step: 0, 90, 180, or 270 degrees */

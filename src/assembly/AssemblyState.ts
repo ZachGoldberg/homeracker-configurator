@@ -1,6 +1,6 @@
 import type { PlacedPart, GridPosition, Axis, BOMEntry, AssemblyFile, Rotation3, PartCategory } from "../types";
 import { getPartDefinition, PART_CATALOG } from "../data/catalog";
-import { getWorldCells, getAdjacentPosition, rotateGridCells, rotateDirection, transformDirection } from "./grid-utils";
+import { getWorldCells, getAdjacentPosition, rotateGridCells, rotateDirection, transformDirection, rotateAxis } from "./grid-utils";
 
 /**
  * Check if any connection point arm would extend below Y=0.
@@ -47,6 +47,8 @@ interface CellOccupant {
   instanceId: string;
   /** Which axis this occupant runs along, or "full" for connectors/lockpins/custom */
   axis: Axis | "full";
+  /** For pull-through connectors: the effective PT axis (after rotation) */
+  pullThroughAxis?: Axis;
 }
 
 const SETTINGS_KEY = "homeracker-settings";
@@ -117,7 +119,7 @@ export class AssemblyState {
    * Check if a new occupant with the given axis can coexist with existing occupants.
    * Returns true if the cell is FREE for this axis (i.e., placement is OK).
    */
-  private isCellFreeForAxis(pos: GridPosition, axis: Axis | "full", ignoreInstanceId?: string): boolean {
+  private isCellFreeForAxis(pos: GridPosition, axis: Axis | "full", ignoreInstanceId?: string, newPullThroughAxis?: Axis): boolean {
     const occupants = this.gridOccupancy.get(gridKey(pos));
     if (!occupants || occupants.length === 0) return true;
     for (const occ of occupants) {
@@ -127,8 +129,13 @@ export class AssemblyState {
         const part = this.parts.get(occ.instanceId);
         if (part && getPartDefinition(part.definitionId)?.category === "custom") continue;
       }
-      // "full" occupants block everything; new "full" occupant is blocked by anything
-      if (occ.axis === "full" || axis === "full") return false;
+
+      if (occ.axis === "full" || axis === "full") {
+        // Pull-through coexistence: PT connector + support on matching axis
+        if (occ.axis === "full" && occ.pullThroughAxis && axis !== "full" && occ.pullThroughAxis === axis) continue;
+        if (axis === "full" && newPullThroughAxis && occ.axis !== "full" && newPullThroughAxis === occ.axis) continue;
+        return false;
+      }
       // Two supports on the same axis collide
       if (occ.axis === axis) return false;
     }
@@ -171,6 +178,13 @@ export class AssemblyState {
     return "full";
   }
 
+  /** Get the effective pull-through axis for a part, accounting for rotation. */
+  private getEffectivePullThroughAxis(definitionId: string, rotation: Rotation3): Axis | undefined {
+    const def = getPartDefinition(definitionId);
+    if (!def?.pullThroughAxis) return undefined;
+    return rotateAxis(def.pullThroughAxis, rotation);
+  }
+
   /** Check if a part can be placed at the given position with rotation and orientation */
   canPlace(
     definitionId: string,
@@ -189,10 +203,11 @@ export class AssemblyState {
     if (def.category === "connector" && hasArmBelowGround(def, position, rotation, orientation)) return false;
 
     const occAxis = this.getOccupancyAxis(def.category, orientation);
+    const ptAxis = this.getEffectivePullThroughAxis(definitionId, rotation);
     const worldCells = this.getRotatedWorldCells(def, position, rotation, orientation);
     for (const worldCell of worldCells) {
       if (worldCell[1] < 0) return false;
-      if (!this.isCellFreeForAxis(worldCell, occAxis)) return false;
+      if (!this.isCellFreeForAxis(worldCell, occAxis, undefined, ptAxis)) return false;
     }
     return true;
   }
@@ -214,10 +229,11 @@ export class AssemblyState {
     if (def.category === "connector" && hasArmBelowGround(def, position, rotation, orientation)) return false;
 
     const occAxis = this.getOccupancyAxis(def.category, orientation);
+    const ptAxis = this.getEffectivePullThroughAxis(definitionId, rotation);
     const worldCells = this.getRotatedWorldCells(def, position, rotation, orientation);
     for (const worldCell of worldCells) {
       if (worldCell[1] < 0) return false;
-      if (!this.isCellFreeForAxis(worldCell, occAxis, ignoreInstanceId)) return false;
+      if (!this.isCellFreeForAxis(worldCell, occAxis, ignoreInstanceId, ptAxis)) return false;
     }
     return true;
   }
@@ -248,11 +264,12 @@ export class AssemblyState {
 
     // Mark grid cells as occupied (rotation + orientation aware)
     const occAxis = this.getOccupancyAxis(def.category, effectiveOrientation);
+    const ptAxis = this.getEffectivePullThroughAxis(definitionId, rotation);
     const worldCells = this.getRotatedWorldCells(def, position, rotation, effectiveOrientation);
     for (const worldCell of worldCells) {
       const key = gridKey(worldCell);
       const occupants = this.gridOccupancy.get(key) || [];
-      occupants.push({ instanceId, axis: occAxis });
+      occupants.push({ instanceId, axis: occAxis, pullThroughAxis: ptAxis });
       this.gridOccupancy.set(key, occupants);
     }
 

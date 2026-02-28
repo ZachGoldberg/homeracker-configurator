@@ -163,6 +163,14 @@ export function transformDirection(direction: Direction, orientation: Axis): Dir
   return direction;
 }
 
+/** Rotate an axis by a Rotation3 (accounts for 90° increments). */
+export function rotateAxis(axis: Axis, rotation: Rotation3): Axis {
+  if (rotation[0] === 0 && rotation[1] === 0 && rotation[2] === 0) return axis;
+  const dir: Direction = `+${axis}` as Direction;
+  const rotated = rotateDirection(dir, rotation);
+  return directionToAxis(rotated);
+}
+
 /** Extract the axis from a direction string. */
 export function directionToAxis(direction: Direction): Axis {
   if (direction === "+x" || direction === "-x") return "x";

@@ -79,8 +79,9 @@ for category in supports connectors lockpins; do
         for key in $(echo "${params_json}" | jq -r 'keys[]'); do
             value=$(echo "${params_json}" | jq -r ".${key}")
             # Quote string values, leave numbers/booleans as-is
+            # String quotes must survive eval, so double-escape them
             if echo "${params_json}" | jq -e ".${key} | type == \"string\"" >/dev/null 2>&1; then
-                d_args="${d_args} -D ${key}=\"${value}\""
+                d_args="${d_args} -D ${key}=\\\"${value}\\\""
             else
                 d_args="${d_args} -D ${key}=${value}"
             fi
