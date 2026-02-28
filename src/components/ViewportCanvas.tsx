@@ -1288,10 +1288,10 @@ export function ViewportCanvas(props: ViewportProps) {
         // Arrow key nudge and W/S lift for selected parts
         const fine = e.shiftKey ? 0.1 : 1;
         switch (e.key) {
-          case "ArrowLeft":  e.preventDefault(); props.onNudgeParts(-fine, 0, 0); break;
+          case "ArrowLeft": e.preventDefault(); props.onNudgeParts(-fine, 0, 0); break;
           case "ArrowRight": e.preventDefault(); props.onNudgeParts(fine, 0, 0); break;
-          case "ArrowUp":    e.preventDefault(); props.onNudgeParts(0, 0, -fine); break;
-          case "ArrowDown":  e.preventDefault(); props.onNudgeParts(0, 0, fine); break;
+          case "ArrowUp": e.preventDefault(); props.onNudgeParts(0, 0, -fine); break;
+          case "ArrowDown": e.preventDefault(); props.onNudgeParts(0, 0, fine); break;
           case "w": case "W": props.onNudgeParts(0, fine, 0); break;
           case "s": case "S": props.onNudgeParts(0, -fine, 0); break;
         }
@@ -1338,7 +1338,7 @@ export function ViewportCanvas(props: ViewportProps) {
       ? "Click to place · T(X) R(Y) F(Z) rotate · O orientation · W/S raise/lower · Esc cancel"
       : "Click to place · T(X) R(Y) F(Z) rotate · W/S raise/lower · Esc cancel";
   } else if (props.mode.type === "select" && props.selectedPartIds.size > 0) {
-    hintText = "Arrow keys nudge · Shift+arrow fine nudge · ctrl-c/v copy/paste - Del delete · Esc deselect";
+    hintText = "Arrow keys nudge · Shift+arrow fine nudge · w/s up and down - ctrl-c/v copy/paste - Del delete · Esc deselect";
   } else if (props.mode.type === "paste") {
     hintText = `Click to paste ${props.mode.clipboard.parts.length} part(s) · Esc cancel`;
   }
