@@ -36,6 +36,7 @@ function generateId(): string {
 export interface AssemblySnapshot {
   parts: PlacedPart[];
   customPartsSkipCollision: boolean;
+  snapEnabled: boolean;
 }
 
 /**
@@ -59,10 +60,13 @@ export class AssemblyState {
   private gridOccupancy: Map<string, CellOccupant[]> = new Map();
   private listeners: Set<() => void> = new Set();
   /** Cached snapshot — only replaced on mutation so useSyncExternalStore stays stable */
-  private cachedSnapshot: AssemblySnapshot = { parts: [], customPartsSkipCollision: false };
+  private cachedSnapshot: AssemblySnapshot = { parts: [], customPartsSkipCollision: false, snapEnabled: true };
 
   /** When true, custom STL parts skip collision detection entirely */
   customPartsSkipCollision: boolean = false;
+
+  /** When true, parts snap to nearby connection points during placement/drag */
+  snapEnabled: boolean = true;
 
   constructor() {
     try {
@@ -70,16 +74,30 @@ export class AssemblyState {
       if (saved) {
         const settings = JSON.parse(saved);
         this.customPartsSkipCollision = !!settings.customPartsSkipCollision;
+        if (settings.snapEnabled !== undefined) this.snapEnabled = !!settings.snapEnabled;
       }
     } catch { /* ignore */ }
   }
 
   setCustomPartsSkipCollision(value: boolean) {
     this.customPartsSkipCollision = value;
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ customPartsSkipCollision: value }));
-    } catch { /* ignore */ }
+    this.persistSettings();
     this.notify();
+  }
+
+  setSnapEnabled(value: boolean) {
+    this.snapEnabled = value;
+    this.persistSettings();
+    this.notify();
+  }
+
+  private persistSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+        customPartsSkipCollision: this.customPartsSkipCollision,
+        snapEnabled: this.snapEnabled,
+      }));
+    } catch { /* ignore */ }
   }
 
   subscribe(listener: () => void): () => void {
@@ -91,6 +109,7 @@ export class AssemblyState {
     this.cachedSnapshot = {
       parts: Array.from(this.parts.values()),
       customPartsSkipCollision: this.customPartsSkipCollision,
+      snapEnabled: this.snapEnabled,
     };
     for (const listener of this.listeners) {
       listener();

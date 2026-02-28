@@ -13,6 +13,8 @@ interface ToolbarProps {
   mode: InteractionMode;
   customCollisionOff: boolean;
   onToggleCustomCollision: () => void;
+  snapEnabled: boolean;
+  onToggleSnap: () => void;
 }
 
 export function Toolbar({
@@ -28,6 +30,8 @@ export function Toolbar({
   mode,
   customCollisionOff,
   onToggleCustomCollision,
+  snapEnabled,
+  onToggleSnap,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -82,6 +86,13 @@ export function Toolbar({
           title="Toggle collision detection for custom STL parts"
         >
           STL Collision: {customCollisionOff ? "Off" : "On"}
+        </button>
+        <button
+          className={`toolbar-btn${!snapEnabled ? " toolbar-btn-active" : ""}`}
+          onClick={onToggleSnap}
+          title="Toggle snap-to-connection points"
+        >
+          Snap: {snapEnabled ? "On" : "Off"}
         </button>
       </div>
 

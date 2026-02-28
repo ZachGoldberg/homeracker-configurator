@@ -320,6 +320,10 @@ export function App() {
     assembly.setCustomPartsSkipCollision(!assembly.customPartsSkipCollision);
   }, []);
 
+  const handleToggleSnap = useCallback(() => {
+    assembly.setSnapEnabled(!assembly.snapEnabled);
+  }, []);
+
   const [toast, setToast] = useState<string | null>(null);
 
   const handleShare = useCallback(async () => {
@@ -406,6 +410,8 @@ export function App() {
           mode={mode}
           customCollisionOff={snapshot.customPartsSkipCollision}
           onToggleCustomCollision={handleToggleCustomCollision}
+          snapEnabled={snapshot.snapEnabled}
+          onToggleSnap={handleToggleSnap}
         />
         <ViewportCanvas
           parts={snapshot.parts}
@@ -420,6 +426,7 @@ export function App() {
           onPasteParts={handlePasteParts}
           onEscape={handleEscape}
           flashPartId={flashPartId}
+          snapEnabled={snapshot.snapEnabled}
         />
       </div>
       <BOMPanel entries={bom} selectedPartIds={selectedPartIds} parts={snapshot.parts} onFlashPart={handleFlashPart} />

@@ -23,6 +23,7 @@ interface ViewportProps {
   onPasteParts: (clipboard: ClipboardData, targetPosition: GridPosition) => void;
   onEscape: () => void;
   flashPartId: string | null;
+  snapEnabled: boolean;
 }
 
 /** Convert grid coordinates to world position (mm).
@@ -528,6 +529,7 @@ function GhostPreview({
   ghostRotation,
   ghostStateRef,
   yLift,
+  snapEnabled,
 }: {
   definitionId: string;
   assembly: AssemblyState;
@@ -535,6 +537,7 @@ function GhostPreview({
   ghostRotation: Rotation3;
   ghostStateRef: React.MutableRefObject<GhostState>;
   yLift: number;
+  snapEnabled: boolean;
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>([0, 0, 0]);
@@ -572,9 +575,11 @@ function GhostPreview({
     };
 
     // Try snapping: supports snap to connector sockets, connectors snap to support endpoints
-    const snap = isSupport
-      ? findBestSnap(assembly, definitionId, cursorGrid, 3, gridRay)
-      : findBestConnectorSnap(assembly, definitionId, cursorGrid, 3, gridRay);
+    const snap = snapEnabled
+      ? (isSupport
+        ? findBestSnap(assembly, definitionId, cursorGrid, 3, gridRay)
+        : findBestConnectorSnap(assembly, definitionId, cursorGrid, 3, gridRay))
+      : null;
 
     if (snap) {
       const orient = isSupport ? snap.orientation : ghostOrientation;
@@ -641,11 +646,13 @@ function DragPreview({
   assembly,
   dropTargetRef,
   yLift,
+  snapEnabled,
 }: {
   dragState: DragState;
   assembly: AssemblyState;
   dropTargetRef: React.MutableRefObject<{ position: GridPosition; valid: boolean; orientation?: Axis; rotation?: Rotation3 }>;
   yLift: number;
+  snapEnabled: boolean;
 }) {
   const { camera, raycaster, pointer } = useThree();
   const [gridPos, setGridPos] = useState<GridPosition>(dragState.originalPosition);
@@ -702,9 +709,11 @@ function DragPreview({
     };
 
     // Try snap: supports → connector sockets, connectors → support endpoints
-    const snap = isSupport
-      ? findBestSnap(assembly, dragState.definitionId, cursorGrid, 3, gridRay)
-      : findBestConnectorSnap(assembly, dragState.definitionId, cursorGrid, 3, gridRay);
+    const snap = snapEnabled
+      ? (isSupport
+        ? findBestSnap(assembly, dragState.definitionId, cursorGrid, 3, gridRay)
+        : findBestConnectorSnap(assembly, dragState.definitionId, cursorGrid, 3, gridRay))
+      : null;
 
     if (snap) {
       const orient = isSupport ? snap.orientation : (dragState.orientation ?? "y");
@@ -922,6 +931,7 @@ function Scene({
   onPartPointerDown,
   yLift,
   flashPartId,
+  snapEnabled,
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
 
@@ -1013,6 +1023,7 @@ function Scene({
           ghostRotation={ghostRotation}
           ghostStateRef={ghostStateRef}
           yLift={yLift}
+          snapEnabled={snapEnabled}
         />
       )}
 
@@ -1023,6 +1034,7 @@ function Scene({
           assembly={assembly}
           dropTargetRef={dropTargetRef}
           yLift={yLift}
+          snapEnabled={snapEnabled}
         />
       )}
 
