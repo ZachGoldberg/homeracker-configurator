@@ -72,7 +72,7 @@ page.on("console", (msg) => {
 page.on("pageerror", (err) => console.error("[PAGE ERR]", err.message));
 
 await page.goto(baseUrl, { waitUntil: "networkidle0", timeout: 15000 });
-await new Promise((r) => setTimeout(r, 2000));
+//await new Promise((r) => setTimeout(r, 2000));
 
 // Build a small assembly so the screenshot isn't empty
 await page.evaluate(() => {
@@ -80,11 +80,11 @@ await page.evaluate(() => {
   if (!asm) return;
   asm.clear();
 
-  // Bottom layer: 4 foot connectors at corners
-  asm.addPart("connector-3d4w-foot", [0, 0, 0]);
-  asm.addPart("connector-3d4w-foot", [5, 0, 0]);
-  asm.addPart("connector-3d4w-foot", [0, 0, 5]);
-  asm.addPart("connector-3d4w-foot", [5, 0, 5]);
+  // Bottom layer: 4 foot connectors at corners (rotate arms toward adjacent supports)
+  asm.addPart("connector-3d3w-foot", [0, 0, 0], [0, 0, 0]);     // arms: +x, +y, +z
+  asm.addPart("connector-3d3w-foot", [5, 0, 0], [0, 270, 0]);   // arms: -x, +y, +z
+  asm.addPart("connector-3d3w-foot", [0, 0, 5], [0, 90, 0]);    // arms: +x, +y, -z
+  asm.addPart("connector-3d3w-foot", [5, 0, 5], [0, 180, 0]);   // arms: -x, +y, -z
 
   // Vertical supports on each corner
   asm.addPart("support-5u", [0, 1, 0], [0, 0, 0], "y");
@@ -100,11 +100,11 @@ await page.evaluate(() => {
   asm.addPart("support-4u", [0, 0, 1], [0, 0, 0], "z");
   asm.addPart("support-4u", [5, 0, 1], [0, 0, 0], "z");
 
-  // Top connectors
-  asm.addPart("connector-3d4w", [0, 6, 0]);
-  asm.addPart("connector-3d4w", [5, 6, 0]);
-  asm.addPart("connector-3d4w", [0, 6, 5]);
-  asm.addPart("connector-3d4w", [5, 6, 5]);
+  // Top connectors (arms face down toward vertical supports + out toward horizontal)
+  asm.addPart("connector-3d3w", [0, 6, 0], [90, 0, 0]);       // arms: +x, -y, +z
+  asm.addPart("connector-3d3w", [5, 6, 0], [90, 270, 0]);     // arms: -x, -y, +z
+  asm.addPart("connector-3d3w", [0, 6, 5], [180, 0, 0]);      // arms: +x, -y, -z
+  asm.addPart("connector-3d3w", [5, 6, 5], [180, 270, 0]);    // arms: -x, -y, -z
 
   // Top horizontal supports along X axis (front and back)
   asm.addPart("support-4u", [1, 6, 0], [0, 0, 0], "x");
@@ -114,7 +114,7 @@ await page.evaluate(() => {
   asm.addPart("support-4u", [0, 6, 1], [0, 0, 0], "z");
   asm.addPart("support-4u", [5, 6, 1], [0, 0, 0], "z");
 });
-await new Promise((r) => setTimeout(r, 3000));
+await new Promise((r) => setTimeout(r, 300));
 
 const screenshotPath = join(PROJECT_ROOT, "screenshot.png");
 await page.screenshot({ path: screenshotPath, fullPage: false });
