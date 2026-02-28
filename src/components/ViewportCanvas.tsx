@@ -567,8 +567,8 @@ function GhostPreview({
     if (snap) {
       const orient = isSupport ? snap.orientation : ghostOrientation;
       const snapRotation: Rotation3 = isSupport ? [0, 0, 0] : (snap.autoRotation ?? ghostRotation);
-      // Snap position Y is already correct (adjacent to support endpoint); only add user yLift
-      const liftedSnapPos: GridPosition = [snap.position[0], snap.position[1] + yLift, snap.position[2]];
+      // Snap position Y is already correct (adjacent to support endpoint); don't add yLift
+      const liftedSnapPos: GridPosition = [snap.position[0], snap.position[1], snap.position[2]];
       // Debug: expose ghost snap state for e2e tests
       (window as any).__ghostDebug = {
         snapPos: snap.position,
@@ -712,8 +712,8 @@ function DragPreview({
 
     if (snap) {
       const orient = isSupport ? snap.orientation : (dragState.orientation ?? "y");
-      // Snap position Y is already correct (adjacent to support endpoint); only add user yLift
-      const liftedSnapPos: GridPosition = [snap.position[0], snap.position[1] + yLift, snap.position[2]];
+      // Snap position Y is already correct (adjacent to support endpoint); don't add yLift
+      const liftedSnapPos: GridPosition = [snap.position[0], snap.position[1], snap.position[2]];
       setGridPos(liftedSnapPos);
       setEffectiveOrientation(orient);
       setIsSnapped(true);
