@@ -182,7 +182,7 @@ if [[ -d "${RAW_MODELS_DIR}" ]]; then
                 # For multi-part files: name is "Part N", with group = display_name
                 # For single-part files: name is display_name, no group
                 if [[ "${num_parts}" -gt 1 ]]; then
-                    manifest_entries+=("{\"id\":\"${part_id}\",\"name\":\"Part ${part_index}\",\"file\":\"${part_file}\",\"group\":\"${display_name}\"}")
+                    manifest_entries+=("{\"id\":\"${part_id}\",\"name\":\"${display_name} - Part ${part_index}\",\"file\":\"${part_file}\",\"group\":\"${display_name}\"}")
                 else
                     manifest_entries+=("{\"id\":\"${part_id}\",\"name\":\"${display_name}\",\"file\":\"${part_file}\"}")
                 fi
