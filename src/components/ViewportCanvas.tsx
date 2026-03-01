@@ -1285,6 +1285,10 @@ export function ViewportCanvas(props: ViewportProps) {
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't capture keystrokes when an input/textarea is focused (e.g. color hex input)
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
       if (e.key === "Escape") {
         if (dragState) {
           setDragState(null);
