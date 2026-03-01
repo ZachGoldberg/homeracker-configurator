@@ -208,7 +208,6 @@ export class AssemblyState {
     for (const [defId, quantity] of counts) {
       const def = getPartDefinition(defId);
       if (def) {
-        console.log(def)
         entries.push({
           definitionId: defId,
           name: def.name,

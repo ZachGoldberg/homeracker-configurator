@@ -467,7 +467,12 @@ export function App() {
   }, []);
 
   const handlePasteParts = useCallback(
-    (clipboard: ClipboardData, targetPosition: GridPosition) => {
+    (clipboard: ClipboardData, targetPosition: GridPosition, extraRotation?: Rotation3) => {
+      const addRot = (a: Rotation3, b: Rotation3): Rotation3 => [
+        ((a[0] + b[0]) % 360) as Rotation3[0],
+        ((a[1] + b[1]) % 360) as Rotation3[1],
+        ((a[2] + b[2]) % 360) as Rotation3[2],
+      ];
       const addedParts: { definitionId: string; position: GridPosition; rotation: Rotation3; orientation?: Axis; color?: string }[] = [];
       for (const cp of clipboard.parts) {
         const pos: GridPosition = [
@@ -475,7 +480,8 @@ export function App() {
           targetPosition[1] + cp.offset[1],
           targetPosition[2] + cp.offset[2],
         ];
-        addedParts.push({ definitionId: cp.definitionId, position: pos, rotation: cp.rotation, orientation: cp.orientation, color: cp.color });
+        const rot = extraRotation ? addRot(cp.rotation, extraRotation) : cp.rotation;
+        addedParts.push({ definitionId: cp.definitionId, position: pos, rotation: rot, orientation: cp.orientation, color: cp.color });
       }
       if (addedParts.length === 0) return;
 

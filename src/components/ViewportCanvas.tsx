@@ -39,7 +39,7 @@ interface ViewportProps {
   onClickPart: (instanceId: string, shiftKey: boolean) => void;
   onClickEmpty: () => void;
   onDeleteSelected: () => void;
-  onPasteParts: (clipboard: ClipboardData, targetPosition: GridPosition) => void;
+  onPasteParts: (clipboard: ClipboardData, targetPosition: GridPosition, extraRotation?: Rotation3) => void;
   onBoxSelect: (ids: string[]) => void;
   onNudgeParts: (dx: number, dy: number, dz: number) => void;
   onEscape: () => void;
@@ -548,8 +548,9 @@ interface GhostState {
 }
 
 /**
- * Shared hook: raycast cursor to ground plane, snap to connectors/supports,
- * and compute the effective grid position, orientation, and rotation.
+ * Shared hook: raycast cursor to ground/drag plane, apply grab offset,
+ * snap to connectors/supports, compute ground lift — single source of truth
+ * for placement, drag, and paste preview positioning.
  */
 function useGhostSnap({
   definitionId,
@@ -558,8 +559,19 @@ function useGhostSnap({
   ghostRotation,
   yLift,
   snapEnabled,
-  /** Optional grid-space offset from cursor to the part being snapped (for paste mode) */
+  /** Grid-space offset from cursor to the anchor part (for paste mode) */
   cursorOffset,
+  /** World-space Y for the raycast plane (default 0). Set to the part's
+   *  original world Y during drag for perspective-correct cursor tracking. */
+  planeY = 0,
+  /** Initial grid position (used as starting state during drag) */
+  initialPosition,
+  /** World-space grab offset [dx, dz] captured on first frame of a drag.
+   *  When provided, the hook subtracts it from the cursor hit before snapping. */
+  grabOffsetRef,
+  /** Optional ref written synchronously inside useFrame so click handlers
+   *  always read the latest computed state without waiting for a React render. */
+  syncRef,
 }: {
   definitionId: string;
   assembly: AssemblyState;
@@ -568,13 +580,17 @@ function useGhostSnap({
   yLift: number;
   snapEnabled: boolean;
   cursorOffset?: GridPosition;
+  planeY?: number;
+  initialPosition?: GridPosition;
+  grabOffsetRef?: React.MutableRefObject<[number, number] | null>;
+  syncRef?: React.MutableRefObject<{ position: GridPosition; orientation: Axis; rotation: Rotation3; isSnapped: boolean }>;
 }) {
   const { camera, raycaster, pointer } = useThree();
-  const [gridPos, setGridPos] = useState<GridPosition>([0, 0, 0]);
-  const [effectiveOrientation, setEffectiveOrientation] = useState<Axis>("y");
-  const [effectiveRotation, setEffectiveRotation] = useState<Rotation3>([0, 0, 0]);
+  const [gridPos, setGridPos] = useState<GridPosition>(initialPosition ?? [0, 0, 0]);
+  const [effectiveOrientation, setEffectiveOrientation] = useState<Axis>(ghostOrientation);
+  const [effectiveRotation, setEffectiveRotation] = useState<Rotation3>(ghostRotation);
   const [isSnapped, setIsSnapped] = useState(false);
-  const groundPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), []);
+  const plane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), -planeY), [planeY]);
   const intersectPoint = useMemo(() => new THREE.Vector3(), []);
 
   const def = getPartDefinition(definitionId);
@@ -585,10 +601,25 @@ function useGhostSnap({
 
   useFrame(() => {
     raycaster.setFromCamera(pointer, camera);
-    if (!raycaster.ray.intersectPlane(groundPlane, intersectPoint)) return;
+    if (!raycaster.ray.intersectPlane(plane, intersectPoint)) return;
+
+    // Apply grab offset if dragging (anchors part to grab point)
+    if (grabOffsetRef) {
+      if (grabOffsetRef.current === null && initialPosition) {
+        const partWorldPos = gridToWorld(initialPosition);
+        grabOffsetRef.current = [
+          intersectPoint.x - partWorldPos[0],
+          intersectPoint.z - partWorldPos[2],
+        ];
+      }
+      if (grabOffsetRef.current) {
+        intersectPoint.x -= grabOffsetRef.current[0];
+        intersectPoint.z -= grabOffsetRef.current[1];
+      }
+    }
 
     const cursorGrid = snapToGrid(intersectPoint);
-    cursorGrid[1] = 0; // cursor is on ground plane
+    cursorGrid[1] = 0;
 
     const gridRay: GridRay = {
       origin: [
@@ -603,7 +634,7 @@ function useGhostSnap({
       ],
     };
 
-    // Snap position is the part's absolute position (cursor + offset)
+    // Snap position is the anchor part's absolute position (cursor + offset)
     const snapPos: GridPosition = [cursorGrid[0] + ox, cursorGrid[1] + oy, cursorGrid[2] + oz];
 
     // Try snapping: supports snap to connector sockets, connectors snap to support endpoints
@@ -627,12 +658,13 @@ function useGhostSnap({
         cursorGrid: [...cursorGrid],
         worldPos: gridToWorld(liftedSnapPos),
       };
-      // Return the anchor's snapped position (subtract offset to get group origin for paste)
+      // Subtract offset to get group origin (for paste; no-op when offset is 0)
       const resultPos: GridPosition = [liftedSnapPos[0] - ox, liftedSnapPos[1] - oy, liftedSnapPos[2] - oz];
       setGridPos(resultPos);
       setEffectiveOrientation(orient);
       setEffectiveRotation(snapRotation);
       setIsSnapped(true);
+      if (syncRef) syncRef.current = { position: resultPos, orientation: orient, rotation: snapRotation, isSnapped: true };
       return;
     }
 
@@ -645,6 +677,7 @@ function useGhostSnap({
     setEffectiveRotation(ghostRotation);
     setGridPos(cursorGrid);
     setIsSnapped(false);
+    if (syncRef) syncRef.current = { position: cursorGrid, orientation: orient, rotation: ghostRotation, isSnapped: false };
   });
 
   return { gridPos, effectiveOrientation, effectiveRotation, isSnapped, def };
@@ -659,6 +692,7 @@ function GhostPreview({
   ghostStateRef,
   yLift,
   snapEnabled,
+  onPlacePart,
 }: {
   definitionId: string;
   assembly: AssemblyState;
@@ -667,54 +701,43 @@ function GhostPreview({
   ghostStateRef: React.MutableRefObject<GhostState>;
   yLift: number;
   snapEnabled: boolean;
+  onPlacePart: (definitionId: string, position: GridPosition, rotation: Rotation3, orientation: Axis) => void;
 }) {
   const { gridPos, effectiveOrientation, effectiveRotation, isSnapped, def } = useGhostSnap({
     definitionId, assembly, ghostOrientation, ghostRotation, yLift, snapEnabled,
+    syncRef: ghostStateRef,
   });
-
-  // Keep ghostStateRef in sync
-  useEffect(() => {
-    ghostStateRef.current = {
-      position: gridPos,
-      orientation: effectiveOrientation,
-      rotation: effectiveRotation,
-      isSnapped,
-    };
-  }, [gridPos, effectiveOrientation, effectiveRotation, isSnapped]);
 
   if (!def) return null;
 
   const worldPos = gridToWorld(gridPos);
-  const displayRotation = effectiveRotation;
 
   // Expose rendered state for e2e debugging
   (window as any).__ghostRender = {
     gridPos: [...gridPos],
     worldPos: [...worldPos],
-    rotation: [...displayRotation],
+    rotation: [...effectiveRotation],
     orientation: effectiveOrientation,
     isSnapped,
   };
 
-  // Disable raycasting on ghost so clicks pass through to ground plane
-  const ghostGroupRef = useRef<THREE.Group>(null);
-  useEffect(() => {
-    if (!ghostGroupRef.current) return;
-    ghostGroupRef.current.traverse((child) => {
-      child.raycast = () => {};
-    });
-  });
+  const handleGhostClick = (e: any) => {
+    e.stopPropagation();
+    const gs = ghostStateRef.current;
+    console.log("[GhostPreview] onClick — placing at", gs.position, gs.rotation, gs.orientation);
+    onPlacePart(definitionId, gs.position, gs.rotation, gs.orientation);
+  };
 
   return (
-    <group ref={ghostGroupRef} name="ghost-preview" position={worldPos}>
+    <group name="ghost-preview" position={worldPos} onClick={handleGhostClick}>
       <Suspense fallback={<GhostFallback definitionId={definitionId} orientation={effectiveOrientation} />}>
-        <GhostModel definitionId={definitionId} rotation={displayRotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
+        <GhostModel definitionId={definitionId} rotation={effectiveRotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
       </Suspense>
     </group>
   );
 }
 
-/** Drag preview — follows cursor on ground plane, snaps to connectors/supports */
+/** Drag preview — uses shared snap hook with elevated plane + grab offset */
 function DragPreview({
   dragState,
   assembly,
@@ -732,87 +755,25 @@ function DragPreview({
   selectedPartIds: Set<string>;
   parts: PlacedPart[];
 }) {
-  const { camera, raycaster, pointer } = useThree();
-  const [gridPos, setGridPos] = useState<GridPosition>(dragState.originalPosition);
-  const [effectiveOrientation, setEffectiveOrientation] = useState<Axis>(dragState.orientation ?? "y");
-  const [isSnapped, setIsSnapped] = useState(false);
-  const intersectPoint = useMemo(() => new THREE.Vector3(), []);
-
-  // Raycast against a plane at the part's world Y so cursor-to-world mapping
-  // matches the visual height (avoids perspective-induced speed mismatch).
-  const partWorldY = gridToWorld(dragState.originalPosition)[1];
-  const dragPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), -partWorldY), [partWorldY]);
-
-  // Track the continuous (non-snapped) XZ offset between the cursor hit and
-  // the part origin so the part stays anchored to the grab point.
   const grabOffsetRef = useRef<[number, number] | null>(null);
+  const partWorldY = gridToWorld(dragState.originalPosition)[1];
 
-  const def = getPartDefinition(dragState.definitionId);
-  const isSupport = def?.category === "support";
-
-  useFrame(() => {
-    raycaster.setFromCamera(pointer, camera);
-    if (!raycaster.ray.intersectPlane(dragPlane, intersectPoint)) return;
-
-    // On the first frame, compute grab offset in world coords for sub-cell accuracy
-    if (grabOffsetRef.current === null) {
-      const partWorldPos = gridToWorld(dragState.originalPosition);
-      grabOffsetRef.current = [
-        intersectPoint.x - partWorldPos[0],
-        intersectPoint.z - partWorldPos[2],
-      ];
-    }
-
-    // Subtract grab offset in world space, then snap to grid
-    const offset = grabOffsetRef.current;
-    intersectPoint.x -= offset[0];
-    intersectPoint.z -= offset[1];
-
-    const cursorGrid = snapToGrid(intersectPoint);
-    cursorGrid[1] = 0;
-
-    // Build grid-space ray for proximity-based snap
-    const gridRay: GridRay = {
-      origin: [
-        raycaster.ray.origin.x / BASE_UNIT,
-        raycaster.ray.origin.y / BASE_UNIT,
-        raycaster.ray.origin.z / BASE_UNIT,
-      ],
-      direction: [
-        raycaster.ray.direction.x,
-        raycaster.ray.direction.y,
-        raycaster.ray.direction.z,
-      ],
-    };
-
-    // Try snap: supports → connector sockets, connectors → support endpoints
-    const snap = snapEnabled
-      ? (isSupport
-        ? findBestSnap(assembly, dragState.definitionId, cursorGrid, 3, gridRay)
-        : findBestConnectorSnap(assembly, dragState.definitionId, cursorGrid, 3, gridRay))
-      : null;
-
-    if (snap) {
-      const orient = isSupport ? snap.orientation : (dragState.orientation ?? "y");
-      // Snap position Y is already correct (adjacent to support endpoint); don't add yLift
-      const liftedSnapPos: GridPosition = [snap.position[0], snap.position[1], snap.position[2]];
-      setGridPos(liftedSnapPos);
-      setEffectiveOrientation(orient);
-      setIsSnapped(true);
-      dropTargetRef.current = { position: liftedSnapPos, orientation: orient, rotation: dragState.rotation };
-      return;
-    }
-
-    // No snap — free placement on ground plane
-    const orient = dragState.orientation ?? "y";
-    // Auto-lift if rotation pushes geometry below ground
-    const dragLift = def ? computeGroundLift(def, dragState.rotation, orient) : 0;
-    cursorGrid[1] = dragLift + yLift;
-    setGridPos(cursorGrid);
-    setEffectiveOrientation(orient);
-    setIsSnapped(false);
-    dropTargetRef.current = { position: cursorGrid, orientation: orient, rotation: dragState.rotation };
+  const { gridPos, effectiveOrientation, isSnapped, def } = useGhostSnap({
+    definitionId: dragState.definitionId,
+    assembly,
+    ghostOrientation: dragState.orientation ?? "y",
+    ghostRotation: dragState.rotation,
+    yLift,
+    snapEnabled,
+    planeY: partWorldY,
+    initialPosition: dragState.originalPosition,
+    grabOffsetRef,
   });
+
+  // Keep dropTargetRef in sync
+  useEffect(() => {
+    dropTargetRef.current = { position: gridPos, orientation: effectiveOrientation, rotation: dragState.rotation };
+  }, [gridPos, effectiveOrientation, dragState.rotation]);
 
   if (!def) return null;
 
@@ -827,7 +788,7 @@ function DragPreview({
   ];
 
   return (
-    <>
+    <group>
       <group name="drag-preview" position={worldPos}>
         <Suspense fallback={<GhostFallback definitionId={dragState.definitionId} orientation={effectiveOrientation} />}>
           <GhostModel definitionId={dragState.definitionId} rotation={dragState.rotation} orientation={effectiveOrientation} isSnapped={isSnapped} />
@@ -844,7 +805,7 @@ function DragPreview({
           </group>
         );
       })}
-    </>
+    </group>
   );
 }
 
@@ -914,9 +875,16 @@ function FitCamera({ parts }: { parts: PlacedPart[] }) {
   return null;
 }
 
-/** Shared paste ghost state — written by PasteGhostPreview each frame, read by Scene on click */
-interface PasteGhostState {
-  position: GridPosition;
+/** Paste ghost state — same shape as GhostState so syncRef can write to it */
+type PasteGhostState = GhostState;
+
+/** Compose two Rotation3 values (add per-axis, mod 360) */
+function addRotations(a: Rotation3, b: Rotation3): Rotation3 {
+  return [
+    ((a[0] + b[0]) % 360) as Rotation3[0],
+    ((a[1] + b[1]) % 360) as Rotation3[1],
+    ((a[2] + b[2]) % 360) as Rotation3[2],
+  ];
 }
 
 /** Ghost preview for paste mode — renders all clipboard parts at cursor position, with snap */
@@ -925,39 +893,38 @@ function PasteGhostPreview({
   pasteStateRef,
   assembly,
   snapEnabled,
+  ghostRotation,
+  onPasteParts,
 }: {
   clipboard: ClipboardData;
   pasteStateRef: React.MutableRefObject<PasteGhostState>;
   assembly: AssemblyState;
   snapEnabled: boolean;
+  ghostRotation: Rotation3;
+  onPasteParts: (clipboard: ClipboardData, targetPosition: GridPosition, extraRotation?: Rotation3) => void;
 }) {
   const anchor = clipboard.parts[0];
+  const anchorRotation = anchor ? addRotations(anchor.rotation, ghostRotation) : ghostRotation;
   const { gridPos, isSnapped } = useGhostSnap({
     definitionId: anchor?.definitionId ?? "",
     assembly,
     ghostOrientation: anchor?.orientation ?? "y",
-    ghostRotation: anchor?.rotation ?? [0, 0, 0],
+    ghostRotation: anchorRotation,
     yLift: 0,
     snapEnabled,
     cursorOffset: anchor?.offset,
+    syncRef: pasteStateRef,
   });
 
-  // Keep pasteStateRef in sync
-  useEffect(() => {
-    pasteStateRef.current = { position: gridPos };
-  }, [gridPos]);
-
-  // Disable raycasting on paste ghost so clicks pass through to ground plane
-  const pasteGroupRef = useRef<THREE.Group>(null);
-  useEffect(() => {
-    if (!pasteGroupRef.current) return;
-    pasteGroupRef.current.traverse((child) => {
-      child.raycast = () => {};
-    });
-  });
+  const handlePasteClick = (e: any) => {
+    e.stopPropagation();
+    const ps = pasteStateRef.current;
+    console.log("[PasteGhostPreview] onClick — pasting at", ps.position, "rotation", ghostRotation);
+    onPasteParts(clipboard, ps.position, ghostRotation);
+  };
 
   return (
-    <group ref={pasteGroupRef} name="paste-preview">
+    <group name="paste-preview" onClick={handlePasteClick}>
       {clipboard.parts.map((cp, i) => {
         const pos: GridPosition = [
           gridPos[0] + cp.offset[0],
@@ -965,10 +932,11 @@ function PasteGhostPreview({
           gridPos[2] + cp.offset[2],
         ];
         const worldPos = gridToWorld(pos);
+        const rot = addRotations(cp.rotation, ghostRotation);
         return (
           <group key={i} position={worldPos}>
             <Suspense fallback={<GhostFallback definitionId={cp.definitionId} orientation={cp.orientation} />}>
-              <GhostModel definitionId={cp.definitionId} rotation={cp.rotation} orientation={cp.orientation} isSnapped={isSnapped} />
+              <GhostModel definitionId={cp.definitionId} rotation={rot} orientation={cp.orientation} isSnapped={isSnapped} />
             </Suspense>
           </group>
         );
@@ -1018,16 +986,18 @@ function Scene({
       if (mode.type === "place") {
         e.stopPropagation();
         const gs = ghostStateRef.current;
+        console.log("[Ground] onClick place — placing at", gs.position, gs.rotation, gs.orientation);
         onPlacePart(mode.definitionId, gs.position, gs.rotation, gs.orientation);
       } else if (mode.type === "paste") {
         e.stopPropagation();
         const ps = pasteStateRef.current;
-        onPasteParts(mode.clipboard, ps.position);
+        console.log("[Ground] onClick paste — pasting at", ps.position, "rotation", ghostRotation);
+        onPasteParts(mode.clipboard, ps.position, ghostRotation);
       } else {
         onClickEmpty();
       }
     },
-    [mode, onPlacePart, onPasteParts, onClickEmpty, ghostStateRef, pasteStateRef, dragState]
+    [mode, onPlacePart, onPasteParts, onClickEmpty, ghostStateRef, pasteStateRef, dragState, ghostRotation]
   );
 
   return (
@@ -1098,6 +1068,7 @@ function Scene({
           ghostStateRef={ghostStateRef}
           yLift={yLift}
           snapEnabled={snapEnabled}
+          onPlacePart={onPlacePart}
         />
       )}
 
@@ -1121,6 +1092,8 @@ function Scene({
           pasteStateRef={pasteStateRef}
           assembly={assembly}
           snapEnabled={snapEnabled}
+          ghostRotation={ghostRotation}
+          onPasteParts={onPasteParts}
         />
       )}
     </>
@@ -1140,6 +1113,9 @@ export function ViewportCanvas(props: ViewportProps) {
   // Paste state
   const pasteStateRef = useRef<PasteGhostState>({
     position: [0, 0, 0],
+    orientation: "y",
+    rotation: [0, 0, 0],
+    isSnapped: false,
   });
 
   // Drag state
@@ -1353,7 +1329,7 @@ export function ViewportCanvas(props: ViewportProps) {
           case "w": case "W": props.onNudgeParts(0, fine, 0); break;
           case "s": case "S": props.onNudgeParts(0, -fine, 0); break;
         }
-      } else if (props.mode.type === "place") {
+      } else if (props.mode.type === "place" || props.mode.type === "paste") {
         switch (e.key.toLowerCase()) {
           case "r": rotateAxis(1); break;
           case "f": rotateAxis(2); break;
@@ -1398,7 +1374,7 @@ export function ViewportCanvas(props: ViewportProps) {
   } else if (props.mode.type === "select" && props.selectedPartIds.size > 0) {
     hintText = "Arrow keys nudge · Shift+arrow fine nudge · w/s up and down - ctrl-c/v copy/paste - Del delete · Esc deselect";
   } else if (props.mode.type === "paste") {
-    hintText = `Click to paste ${props.mode.clipboard.parts.length} part(s) · Esc cancel`;
+    hintText = `Click to paste ${props.mode.clipboard.parts.length} part(s) · T(X) R(Y) F(Z) rotate · Esc cancel`;
   }
 
   return (
