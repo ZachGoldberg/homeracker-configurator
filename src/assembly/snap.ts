@@ -306,7 +306,13 @@ export function computeAutoRotation(
   const STEPS: RotationStep[] = [0, 90, 180, 270];
   let bestRotation: Rotation3 = fallbackRotation;
   let bestScore = -1;
-  let bestTotalSteps = Infinity;
+  let bestDist = Infinity;
+
+  // Distance between two rotations (minimum steps to go from one to the other)
+  const rotDist = (a: Rotation3, b: Rotation3) => {
+    const d = (v1: number, v2: number) => { const diff = ((v1 - v2) % 360 + 360) % 360; return Math.min(diff, 360 - diff) / 90; };
+    return d(a[0], b[0]) + d(a[1], b[1]) + d(a[2], b[2]);
+  };
 
   for (const rx of STEPS) {
     for (const ry of STEPS) {
@@ -322,12 +328,12 @@ export function computeAutoRotation(
           if (rotatedArms.includes(needed)) coverage++;
         }
 
-        // Total rotation steps (lower = simpler)
-        const totalSteps = (rx / 90) + (ry / 90) + (rz / 90);
+        // Prefer rotations closest to the user's current rotation
+        const dist = rotDist(rotation, fallbackRotation);
 
-        if (coverage > bestScore || (coverage === bestScore && totalSteps < bestTotalSteps)) {
+        if (coverage > bestScore || (coverage === bestScore && dist < bestDist)) {
           bestScore = coverage;
-          bestTotalSteps = totalSteps;
+          bestDist = dist;
           bestRotation = rotation;
         }
       }
