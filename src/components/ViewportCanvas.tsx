@@ -2,6 +2,7 @@ import { Canvas, useThree, useFrame } from "@react-three/fiber";
 import { OrbitControls, Grid, GizmoHelper, GizmoViewport, useGLTF } from "@react-three/drei";
 import { useCallback, useRef, useState, useEffect, useMemo, Suspense } from "react";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { BASE_UNIT, PART_COLORS, GRID_EXTENT } from "../constants";
 import type { PlacedPart, InteractionMode, GridPosition, Rotation3, RotationStep, Axis, DragState, ClipboardData } from "../types";
 import { getPartDefinition } from "../data/catalog";
@@ -9,7 +10,8 @@ import { isCustomPart, getCustomPartGeometry } from "../data/custom-parts";
 import { AssemblyState } from "../assembly/AssemblyState";
 import { nextOrientation, orientationToRotation, transformCell, rotateGridCells, computeGroundLift } from "../assembly/grid-utils";
 import { findBestSnap, findBestConnectorSnap, type GridRay } from "../assembly/snap";
-import { detectCollidingPartIds } from "../assembly/collision";
+import { detectMeshCollisionsForAssembly, type MeshCollisionResult } from "../assembly/collision";
+import { registerPartGeometry, hasRegisteredGeometry, getRegistryVersion, subscribeRegistry } from "../assembly/geometry-registry";
 
 /**
  * Create a MeshStandardMaterial with a custom color, preserving surface detail
@@ -98,7 +100,7 @@ function PartMesh({
   isDragging,
   isPlacing,
   isFlashing,
-  isColliding,
+  collisionBoxes,
   onPointerDown,
 }: {
   part: PlacedPart;
@@ -106,20 +108,34 @@ function PartMesh({
   isDragging: boolean;
   isPlacing: boolean;
   isFlashing: boolean;
-  isColliding: boolean;
+  collisionBoxes: THREE.Box3[];
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId);
   if (!def) return null;
 
-  if (isCustomPart(part.definitionId)) {
-    return <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} isColliding={isColliding} onPointerDown={onPointerDown} />;
-  }
+  const isCustom = isCustomPart(part.definitionId);
 
   return (
-    <Suspense fallback={<PartMeshFallback part={part} isSelected={isSelected} onClick={() => { }} />}>
-      <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} isColliding={isColliding} onPointerDown={onPointerDown} />
-    </Suspense>
+    <>
+      {isCustom ? (
+        <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} onPointerDown={onPointerDown} />
+      ) : (
+        <Suspense fallback={<PartMeshFallback part={part} isSelected={isSelected} onClick={() => { }} />}>
+          <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} onPointerDown={onPointerDown} />
+        </Suspense>
+      )}
+      {collisionBoxes.map((box, i) => {
+        const key = `collision-${i}`;
+        return isCustom ? (
+          <CustomCollisionClip key={key} part={part} clipBox={box} />
+        ) : (
+          <Suspense key={key} fallback={null}>
+            <GLBCollisionClip part={part} clipBox={box} />
+          </Suspense>
+        );
+      })}
+    </>
   );
 }
 
@@ -130,7 +146,6 @@ function CustomPartMesh({
   isDragging,
   isPlacing,
   isFlashing,
-  isColliding,
   onPointerDown,
 }: {
   part: PlacedPart;
@@ -138,7 +153,6 @@ function CustomPartMesh({
   isDragging: boolean;
   isPlacing: boolean;
   isFlashing: boolean;
-  isColliding: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId)!;
@@ -168,7 +182,7 @@ function CustomPartMesh({
   });
 
   const categoryColor = part.color ?? PART_COLORS.custom;
-  const color = isSelected ? PART_COLORS.selected : isColliding ? PART_COLORS.collision : categoryColor;
+  const color = isSelected ? PART_COLORS.selected : categoryColor;
   const opacity = isDragging ? 0.3 : 1;
 
   return (
@@ -205,7 +219,6 @@ function PartMeshLoaded({
   isDragging,
   isPlacing,
   isFlashing,
-  isColliding,
   onPointerDown,
 }: {
   part: PlacedPart;
@@ -213,7 +226,6 @@ function PartMeshLoaded({
   isDragging: boolean;
   isPlacing: boolean;
   isFlashing: boolean;
-  isColliding: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId)!;
@@ -221,6 +233,25 @@ function PartMeshLoaded({
   const cloned = useMemo(() => scene.clone(), [scene]);
   const worldPos = gridToWorld(part.position);
   const groupRef = useRef<THREE.Group>(null);
+
+  // Register merged geometry for BVH collision detection (once per definition)
+  useEffect(() => {
+    if (hasRegisteredGeometry(def.id)) return;
+    const geometries: THREE.BufferGeometry[] = [];
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        const geo = child.geometry.clone();
+        geo.applyMatrix4(child.matrixWorld);
+        geometries.push(geo);
+      }
+    });
+    if (geometries.length > 0) {
+      const merged = geometries.length === 1
+        ? geometries[0]
+        : mergeGeometries(geometries);
+      if (merged) registerPartGeometry(def.id, merged);
+    }
+  }, [scene, def.id]);
 
   // Store original materials so we can restore them on deselect
   const originalMaterials = useRef<WeakMap<THREE.Mesh, THREE.Material>>(new WeakMap());
@@ -256,11 +287,6 @@ function PartMeshLoaded({
             mat.emissiveIntensity = 0.3;
             child.material = mat;
           }
-        } else if (isColliding) {
-          child.material = makeColorMaterial(PART_COLORS.collision, orig, {
-            emissive: new THREE.Color(PART_COLORS.collision),
-            emissiveIntensity: 0.4,
-          });
         } else if (part.color) {
           child.material = makeColorMaterial(part.color, orig);
         } else {
@@ -270,7 +296,7 @@ function PartMeshLoaded({
         }
       }
     });
-  }, [isSelected, isDragging, isFlashing, isColliding, part.color]);
+  }, [isSelected, isDragging, isFlashing, part.color]);
 
   // Flash animation for "find part" from selection panel
   const flashStart = useRef(0);
@@ -549,6 +575,98 @@ function GhostFallback({ definitionId, orientation }: { definitionId: string; or
         depthWrite={false}
       />
     </mesh>
+  );
+}
+
+/** Build 6 clipping planes forming a box from a THREE.Box3 */
+function boxClipPlanes(box: THREE.Box3): THREE.Plane[] {
+  return [
+    new THREE.Plane(new THREE.Vector3(1, 0, 0), -box.min.x),
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), box.max.x),
+    new THREE.Plane(new THREE.Vector3(0, 1, 0), -box.min.y),
+    new THREE.Plane(new THREE.Vector3(0, -1, 0), box.max.y),
+    new THREE.Plane(new THREE.Vector3(0, 0, 1), -box.min.z),
+    new THREE.Plane(new THREE.Vector3(0, 0, -1), box.max.z),
+  ];
+}
+
+/** Red-tinted clipped copy of a GLB part mesh, restricted to an intersection AABB */
+function GLBCollisionClip({ part, clipBox }: { part: PlacedPart; clipBox: THREE.Box3 }) {
+  const def = getPartDefinition(part.definitionId)!;
+  const { scene } = useGLTF(def.modelPath);
+  const cloned = useMemo(() => scene.clone(), [scene]);
+  const groupRef = useRef<THREE.Group>(null);
+
+  const planes = useMemo(() => boxClipPlanes(clipBox), [clipBox]);
+
+  useEffect(() => {
+    if (!groupRef.current) return;
+    groupRef.current.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.material = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(PART_COLORS.collision),
+          transparent: true,
+          opacity: 0.6,
+          clippingPlanes: planes,
+          side: THREE.DoubleSide,
+          depthTest: false,
+        });
+        child.renderOrder = 10;
+      }
+    });
+  }, [planes]);
+
+  const worldPos = gridToWorld(part.position);
+  const partEuler = degreesToEuler(part.rotation);
+  const orientEuler = degreesToEuler(orientationToRotation(part.orientation ?? "y"));
+  const orient = part.orientation ?? "y";
+  const orientedCells = def.gridCells.map((c) => transformCell(c, orient));
+  const rotatedCells = rotateGridCells(orientedCells, part.rotation);
+  const offset = modelCenterOffset({ gridCells: rotatedCells });
+
+  return (
+    <group position={worldPos}>
+      <group position={offset}>
+        <group rotation={partEuler}>
+          <group rotation={orientEuler}>
+            <primitive ref={groupRef} object={cloned} />
+          </group>
+        </group>
+      </group>
+    </group>
+  );
+}
+
+/** Red-tinted clipped copy of a custom STL part, restricted to an intersection AABB */
+function CustomCollisionClip({ part, clipBox }: { part: PlacedPart; clipBox: THREE.Box3 }) {
+  const def = getPartDefinition(part.definitionId)!;
+  const geometry = getCustomPartGeometry(part.definitionId);
+  if (!geometry) return null;
+
+  const planes = useMemo(() => boxClipPlanes(clipBox), [clipBox]);
+
+  const worldPos = gridToWorld(part.position);
+  const partEuler = degreesToEuler(part.rotation);
+  const rotatedCells = rotateGridCells(def.gridCells, part.rotation);
+  const offset = modelCenterOffset({ gridCells: rotatedCells });
+
+  return (
+    <group position={worldPos}>
+      <group position={offset}>
+        <group rotation={partEuler}>
+          <mesh geometry={geometry} renderOrder={10}>
+            <meshBasicMaterial
+              color={PART_COLORS.collision}
+              transparent
+              opacity={0.6}
+              clippingPlanes={planes}
+              side={THREE.DoubleSide}
+              depthTest={false}
+            />
+          </mesh>
+        </group>
+      </group>
+    </group>
   );
 }
 
@@ -995,11 +1113,31 @@ function Scene({
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
 
-  // Compute which parts are colliding when enabled
-  const collidingPartIds = useMemo(() => {
-    if (!showCollisions) return new Set<string>();
-    return detectCollidingPartIds(assembly);
-  }, [showCollisions, parts]); // parts dependency ensures recompute on assembly changes
+  // Stable empty array to avoid re-renders for non-colliding parts
+  const NO_COLLISIONS: THREE.Box3[] = useMemo(() => [], []);
+
+  // Track geometry registry version so we recompute when GLB geometries become available
+  const [registryVer, setRegistryVer] = useState(() => getRegistryVersion());
+  useEffect(() => subscribeRegistry(() => setRegistryVer(getRegistryVersion())), []);
+
+  // Compute mesh-based collisions: grid broad-phase + BVH narrow-phase
+  const meshCollisions = useMemo(() => {
+    if (!showCollisions) return [] as MeshCollisionResult[];
+    return detectMeshCollisionsForAssembly(assembly);
+  }, [showCollisions, parts, registryVer]);
+
+  // Build per-part collision boxes from mesh collision results
+  const collisionBoxesPerPart = useMemo(() => {
+    const map = new Map<string, THREE.Box3[]>();
+    for (const result of meshCollisions) {
+      for (const id of [result.partIdA, result.partIdB]) {
+        let boxes = map.get(id);
+        if (!boxes) { boxes = []; map.set(id, boxes); }
+        boxes.push(result.intersectionBBox);
+      }
+    }
+    return map;
+  }, [meshCollisions]);
 
   const handleGroundClick = useCallback(
     (e: any) => {
@@ -1075,7 +1213,7 @@ function Scene({
           isDragging={dragState?.instanceId === part.instanceId}
           isPlacing={mode.type === "place"}
           isFlashing={flashPartId === part.instanceId}
-          isColliding={collidingPartIds.has(part.instanceId)}
+          collisionBoxes={collisionBoxesPerPart.get(part.instanceId) ?? NO_COLLISIONS}
           onPointerDown={(e) => onPartPointerDown(part.instanceId, e.nativeEvent)}
         />
       ))}
@@ -1411,7 +1549,7 @@ export function ViewportCanvas(props: ViewportProps) {
     >
       <Canvas
         camera={{ position: [150, 200, 150], fov: 50, near: 1, far: 10000 }}
-        gl={{ antialias: true }}
+        gl={{ antialias: true, localClippingEnabled: true }}
         scene={{ background: new THREE.Color("#3d3d5c") }}
       >
         <Scene

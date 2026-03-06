@@ -2,29 +2,7 @@ import type { GridPosition, Axis, Rotation3 } from "../types";
 import type { AssemblyState } from "./AssemblyState";
 import { getPartDefinition } from "../data/catalog";
 import { rotateAxis } from "./grid-utils";
-
-/**
- * Detect collision cells: grid positions occupied by 2+ parts,
- * excluding valid pull-through overlaps (a PT connector sitting
- * on a support whose orientation matches the connector's effective
- * pull-through axis).
- *
- * Returns the set of "x,y,z" grid keys where collisions exist.
- */
-export function detectCollisionCells(assembly: AssemblyState): Set<string> {
-  const collisions = new Set<string>();
-
-  for (const [key, ids] of assembly.gridOccupancy) {
-    if (ids.length < 2) continue;
-
-    // Check if every pair in this cell is a valid pull-through overlap
-    if (isValidPullThroughCell(ids, assembly)) continue;
-
-    collisions.add(key);
-  }
-
-  return collisions;
-}
+import { detectAllMeshCollisions, type MeshCollisionResult } from "./mesh-collision";
 
 /**
  * Returns collision cells grouped by part instance ID.
@@ -34,26 +12,9 @@ export function detectCollisionCells(assembly: AssemblyState): Set<string> {
 export function detectCollisionCellsPerPart(assembly: AssemblyState): Map<string, GridPosition[]> {
   const result = new Map<string, GridPosition[]>();
 
-  // Debug: log occupancy stats
-  const partIds = new Set<string>();
-  for (const [, ids] of assembly.gridOccupancy) {
-    for (const id of ids) partIds.add(id);
-  }
-  console.log("[Collisions] occupancy has", assembly.gridOccupancy.size, "cells covering", partIds.size, "unique parts");
-  for (const id of partIds) {
-    const part = assembly.getPartById(id);
-    if (part) {
-      const def = getPartDefinition(part.definitionId);
-      console.log("  part", id, "defId=", part.definitionId, "category=", def?.category, "gridCells=", def?.gridCells?.length);
-    }
-  }
-
-  let multiOccupied = 0;
-  let validPT = 0;
   for (const [key, ids] of assembly.gridOccupancy) {
     if (ids.length < 2) continue;
-    multiOccupied++;
-    if (isValidPullThroughCell(ids, assembly)) { validPT++; continue; }
+    if (isValidPullThroughCell(ids, assembly)) continue;
 
     const [x, y, z] = key.split(",").map(Number);
     const cell: GridPosition = [x, y, z];
@@ -68,7 +29,6 @@ export function detectCollisionCellsPerPart(assembly: AssemblyState): Map<string
     }
   }
 
-  console.log("[Collisions] multiOccupied:", multiOccupied, "validPT:", validPT, "collisions:", result.size);
   return result;
 }
 
@@ -117,3 +77,13 @@ function isValidPullThroughCell(ids: string[], assembly: AssemblyState): boolean
 
   return true;
 }
+
+/**
+ * Full collision detection: grid broad-phase + mesh narrow-phase.
+ * Returns mesh collision results with intersection AABBs per colliding pair.
+ */
+export function detectMeshCollisionsForAssembly(assembly: AssemblyState): MeshCollisionResult[] {
+  return detectAllMeshCollisions(assembly);
+}
+
+export type { MeshCollisionResult };

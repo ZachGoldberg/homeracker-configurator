@@ -3,7 +3,7 @@ import { getPartDefinition } from "../data/catalog";
 import { getWorldCells, getAdjacentPosition, rotateGridCells, rotateDirection, transformDirection } from "./grid-utils";
 
 function gridKey(pos: GridPosition): string {
-  return `${pos[0]},${pos[1]},${pos[2]}`;
+  return `${Math.round(pos[0])},${Math.round(pos[1])},${Math.round(pos[2])}`;
 }
 
 let nextId = 0;
