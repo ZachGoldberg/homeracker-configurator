@@ -422,6 +422,25 @@
     pointer-events: none;
   }
 
+  .collision-computing-indicator {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(255, 160, 0, 0.85);
+    color: #000;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    pointer-events: none;
+    animation: pulse-opacity 1s ease-in-out infinite;
+  }
+
+  @keyframes pulse-opacity {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
   /* BOM Panel */
   .bom-panel {
     width: var(--bom-width);

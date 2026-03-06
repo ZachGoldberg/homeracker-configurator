@@ -986,8 +986,7 @@ interface SceneProps extends ViewportProps {
   onPartPointerDown: (instanceId: string, nativeEvent: PointerEvent) => void;
   yLift: number;
   boxSelectActive: boolean;
-  showCollisions: boolean;
-  fineMeshCollisions: boolean;
+  collidingPartIds: Set<string>;
 }
 
 /** Scene contents — lives inside the Canvas */
@@ -1010,17 +1009,9 @@ function Scene({
   flashPartId,
   snapEnabled,
   boxSelectActive,
-  showCollisions,
-  fineMeshCollisions,
+  collidingPartIds,
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
-
-  // Compute which parts are colliding when enabled
-  const collidingPartIds = useMemo(() => {
-    if (!showCollisions) return new Set<string>();
-    if (fineMeshCollisions) return detectCollidingPartIdsMesh(assembly);
-    return detectCollidingPartIds(assembly);
-  }, [showCollisions, fineMeshCollisions, parts]);
 
   const handleGroundClick = useCallback(
     (e: any) => {
@@ -1144,6 +1135,9 @@ function Scene({
 }
 
 export function ViewportCanvas(props: ViewportProps) {
+  const [computingCollisions, setComputingCollisions] = useState(false);
+  const [collidingPartIds, setCollidingPartIds] = useState<Set<string>>(new Set());
+
   const [ghostRotation, setGhostRotation] = useState<Rotation3>([0, 0, 0]);
   const [ghostOrientation, setGhostOrientation] = useState<Axis>("y");
   const ghostStateRef = useRef<GhostState>({
@@ -1171,6 +1165,35 @@ export function ViewportCanvas(props: ViewportProps) {
     startX: number;
     startY: number;
   } | null>(null);
+
+  // Collision detection runs in the outer (DOM) React tree so state updates are visible
+  useEffect(() => {
+    if (!props.showCollisions || dragState) {
+      setCollidingPartIds(new Set());
+      return;
+    }
+    if (!props.fineMeshCollisions) {
+      const timer = setTimeout(() => {
+        setCollidingPartIds(detectCollidingPartIds(props.assembly));
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setComputingCollisions(true);
+      detectCollidingPartIdsMesh(props.assembly, controller.signal).then((result) => {
+        if (!controller.signal.aborted) {
+          setCollidingPartIds(result);
+          setComputingCollisions(false);
+        }
+      });
+    }, 200);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+      setComputingCollisions(false);
+    };
+  }, [props.showCollisions, props.fineMeshCollisions, props.parts, dragState]);
 
   // Box-select (marquee) state
   const boxSelectRef = useRef<{ startX: number; startY: number } | null>(null);
@@ -1446,6 +1469,7 @@ export function ViewportCanvas(props: ViewportProps) {
           onPartPointerDown={handlePartPointerDown}
           yLift={yLift}
           boxSelectActive={!!boxSelectRect}
+          collidingPartIds={collidingPartIds}
         />
       </Canvas>
       {boxSelectRect && (
@@ -1462,6 +1486,11 @@ export function ViewportCanvas(props: ViewportProps) {
       {hintText && (
         <div className="viewport-hint">
           {hintText}
+        </div>
+      )}
+      {computingCollisions && (
+        <div className="collision-computing-indicator">
+          Computing collisions...
         </div>
       )}
     </div>

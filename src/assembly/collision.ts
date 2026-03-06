@@ -34,26 +34,9 @@ export function detectCollisionCells(assembly: AssemblyState): Set<string> {
 export function detectCollisionCellsPerPart(assembly: AssemblyState): Map<string, GridPosition[]> {
   const result = new Map<string, GridPosition[]>();
 
-  // Debug: log occupancy stats
-  const partIds = new Set<string>();
-  for (const [, ids] of assembly.gridOccupancy) {
-    for (const id of ids) partIds.add(id);
-  }
-  console.log("[Collisions] occupancy has", assembly.gridOccupancy.size, "cells covering", partIds.size, "unique parts");
-  for (const id of partIds) {
-    const part = assembly.getPartById(id);
-    if (part) {
-      const def = getPartDefinition(part.definitionId);
-      console.log("  part", id, "defId=", part.definitionId, "category=", def?.category, "gridCells=", def?.gridCells?.length);
-    }
-  }
-
-  let multiOccupied = 0;
-  let validPT = 0;
   for (const [key, ids] of assembly.gridOccupancy) {
     if (ids.length < 2) continue;
-    multiOccupied++;
-    if (isValidPullThroughCell(ids, assembly)) { validPT++; continue; }
+    if (isValidPullThroughCell(ids, assembly)) continue;
 
     const [x, y, z] = key.split(",").map(Number);
     const cell: GridPosition = [x, y, z];
@@ -68,7 +51,6 @@ export function detectCollisionCellsPerPart(assembly: AssemblyState): Map<string
     }
   }
 
-  console.log("[Collisions] multiOccupied:", multiOccupied, "validPT:", validPT, "collisions:", result.size);
   return result;
 }
 
