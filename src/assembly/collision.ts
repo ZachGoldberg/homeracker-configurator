@@ -73,6 +73,14 @@ export function detectCollisionCellsPerPart(assembly: AssemblyState): Map<string
 }
 
 /**
+ * Returns the set of part instance IDs that have at least one collision.
+ */
+export function detectCollidingPartIds(assembly: AssemblyState): Set<string> {
+  const perPart = detectCollisionCellsPerPart(assembly);
+  return new Set(perPart.keys());
+}
+
+/**
  * A cell is a valid pull-through overlap if it contains exactly one
  * pull-through connector and one or more supports, and the connector's
  * effective PT axis matches each support's orientation.
