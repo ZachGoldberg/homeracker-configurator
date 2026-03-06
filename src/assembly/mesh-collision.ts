@@ -117,24 +117,60 @@ function getPartWorldMatrix(part: PlacedPart): THREE.Matrix4 | undefined {
 
 /**
  * Check if a pair of parts is a valid pull-through connection (connector + support
- * along matching axis). These intentionally overlap and should not be flagged.
+ * along matching axis, properly aligned). These intentionally overlap and should
+ * not be flagged.
+ *
+ * The connector must be positionally aligned with the support in the plane
+ * perpendicular to the PT axis — otherwise the support doesn't actually pass
+ * through the connector's tunnel.
  */
 function isValidPullThroughPair(partA: PlacedPart, partB: PlacedPart): boolean {
   const defA = getPartDefinition(partA.definitionId);
   const defB = getPartDefinition(partB.definitionId);
   if (!defA || !defB) return false;
 
+  let connector: PlacedPart, support: PlacedPart;
+  let ptAxisRaw: Axis | undefined;
+  let connRotation: Rotation3;
+
   if (defA.category === "connector" && defA.pullThroughAxis && defB.category === "support") {
-    const ptAxis = rotateAxis(defA.pullThroughAxis, partA.rotation ?? [0, 0, 0]);
-    if (ptAxis === (partB.orientation ?? "y")) return true;
+    connector = partA; support = partB;
+    ptAxisRaw = defA.pullThroughAxis;
+    connRotation = partA.rotation ?? [0, 0, 0];
+  } else if (defB.category === "connector" && defB.pullThroughAxis && defA.category === "support") {
+    connector = partB; support = partA;
+    ptAxisRaw = defB.pullThroughAxis;
+    connRotation = partB.rotation ?? [0, 0, 0];
+  } else {
+    return false;
   }
 
-  if (defB.category === "connector" && defB.pullThroughAxis && defA.category === "support") {
-    const ptAxis = rotateAxis(defB.pullThroughAxis, partB.rotation ?? [0, 0, 0]);
-    if (ptAxis === (partA.orientation ?? "y")) return true;
+  const ptAxis = rotateAxis(ptAxisRaw, connRotation);
+  const supportOrientation = support.orientation ?? "y";
+  if (ptAxis !== supportOrientation) return false;
+
+  // Check positional alignment in the plane perpendicular to PT axis.
+  // If the connector is offset too far, the support doesn't go through the hole.
+  const ALIGN_TOLERANCE = 0.35; // grid units (~5mm)
+  const cp = connector.position;
+  const sp = support.position;
+
+  switch (ptAxis) {
+    case "x":
+      if (Math.abs(cp[1] - sp[1]) > ALIGN_TOLERANCE) return false;
+      if (Math.abs(cp[2] - sp[2]) > ALIGN_TOLERANCE) return false;
+      break;
+    case "y":
+      if (Math.abs(cp[0] - sp[0]) > ALIGN_TOLERANCE) return false;
+      if (Math.abs(cp[2] - sp[2]) > ALIGN_TOLERANCE) return false;
+      break;
+    case "z":
+      if (Math.abs(cp[0] - sp[0]) > ALIGN_TOLERANCE) return false;
+      if (Math.abs(cp[1] - sp[1]) > ALIGN_TOLERANCE) return false;
+      break;
   }
 
-  return false;
+  return true;
 }
 
 /** Compute world-space AABB for a part */
@@ -225,7 +261,12 @@ export async function detectCollidingPartIds(
 
       if (isValidPullThroughPair(dataA.part, dataB.part)) { ptSkipped++; continue; }
 
-      if (!dataA.aabb.intersectsBox(dataB.aabb)) { aabbSkipped++; continue; }
+      // Shrink AABBs by a small tolerance to avoid false positives from
+      // parts that merely touch at a shared boundary (e.g. adjacent connector + support)
+      const AABB_TOLERANCE = 0.75; // mm
+      const shrunkA = dataA.aabb.clone().expandByScalar(-AABB_TOLERANCE);
+      const shrunkB = dataB.aabb.clone().expandByScalar(-AABB_TOLERANCE);
+      if (!shrunkA.intersectsBox(shrunkB)) { aabbSkipped++; continue; }
 
       // Ensure both geometries have BVH for fast dual-tree traversal
       ensureBVH(dataA.part.definitionId);
@@ -238,7 +279,18 @@ export async function detectCollidingPartIds(
       const geoB = getGeometryForPart(dataB.part.definitionId);
       const trisB = geoB ? (geoB.index ? geoB.index.count / 3 : geoB.attributes.position.count / 3) : 0;
       const t0 = performance.now();
-      const matAToB = dataB.invMat.clone().multiply(dataA.mat);
+
+      // Shrink geoA slightly around its centroid before testing intersection.
+      // This adds ~1mm tolerance so parts that merely touch at a shared
+      // boundary (e.g. connector arm tip meets support end) aren't flagged.
+      const SHRINK = 0.95;
+      geoA.computeBoundingBox();
+      const centroid = geoA.boundingBox!.getCenter(new THREE.Vector3());
+      const shrinkMat = new THREE.Matrix4()
+        .makeTranslation(centroid.x, centroid.y, centroid.z)
+        .multiply(new THREE.Matrix4().makeScale(SHRINK, SHRINK, SHRINK))
+        .multiply(new THREE.Matrix4().makeTranslation(-centroid.x, -centroid.y, -centroid.z));
+      const matAToB = dataB.invMat.clone().multiply(dataA.mat).multiply(shrinkMat);
       const hit = bvhB.intersectsGeometry(geoA, matAToB);
       const dt = performance.now() - t0;
       if (dt > 10) {

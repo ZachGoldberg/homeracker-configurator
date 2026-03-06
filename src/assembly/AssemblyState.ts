@@ -52,7 +52,7 @@ export class AssemblyState {
   /** When true, overlapping grid cells are highlighted in red */
   showCollisions: boolean = false;
   /** When true, use BVH mesh intersection for precise collision detection */
-  fineMeshCollisions: boolean = false;
+  fineMeshCollisions: boolean = true;
 
   constructor() {
     try {

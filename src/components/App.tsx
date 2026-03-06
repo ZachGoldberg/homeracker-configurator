@@ -8,6 +8,7 @@ import { HistoryManager, type Command } from "../assembly/HistoryManager";
 import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3, ClipboardData } from "../types";
 import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints, computeAutoRotation } from "../assembly/snap";
 import { computeGroundLift } from "../assembly/grid-utils";
+import { detectCollidingPartIds, detectCollidingPartIdsMesh } from "../assembly/collision";
 import { restoreCustomParts, importModelFile, isCustomPart } from "../data/custom-parts";
 import { encodeAssemblyToHash, decodeAssemblyFromHash, hasCustomParts } from "../sharing/url-sharing";
 
@@ -54,6 +55,7 @@ assembly.subscribe(() => {
 (window as any).__importSTL = importModelFile; // backward compat for e2e
 (window as any).__importModel = importModelFile;
 (window as any).__computeGroundLift = computeGroundLift;
+(window as any).__collision = { detectCollidingPartIds, detectCollidingPartIdsMesh };
 
 export function App() {
   const [ready, setReady] = useState(false);
