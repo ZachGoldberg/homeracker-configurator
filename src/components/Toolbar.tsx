@@ -15,6 +15,8 @@ interface ToolbarProps {
   onToggleSnap: () => void;
   showCollisions: boolean;
   onToggleCollisions: () => void;
+  fineMeshCollisions: boolean;
+  onToggleFineMesh: () => void;
 }
 
 export function Toolbar({
@@ -32,6 +34,8 @@ export function Toolbar({
   onToggleSnap,
   showCollisions,
   onToggleCollisions,
+  fineMeshCollisions,
+  onToggleFineMesh,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -94,6 +98,15 @@ export function Toolbar({
         >
           Show Collisions: {showCollisions ? "On" : "Off"}
         </button>
+        {showCollisions && (
+          <button
+            className={`toolbar-btn${fineMeshCollisions ? " toolbar-btn-active" : ""}`}
+            onClick={onToggleFineMesh}
+            title="Use precise mesh intersection (slower but more accurate)"
+          >
+            Fine Mesh Collision Algorithm: {fineMeshCollisions ? "On" : "Off"}
+          </button>
+        )}
       </div>
 
       {mode.type === "place" && (

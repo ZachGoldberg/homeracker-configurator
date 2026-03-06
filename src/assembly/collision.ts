@@ -73,12 +73,14 @@ export function detectCollisionCellsPerPart(assembly: AssemblyState): Map<string
 }
 
 /**
- * Returns the set of part instance IDs that have at least one collision.
+ * Returns the set of part instance IDs that have at least one collision (grid-only).
  */
 export function detectCollidingPartIds(assembly: AssemblyState): Set<string> {
   const perPart = detectCollisionCellsPerPart(assembly);
   return new Set(perPart.keys());
 }
+
+export { detectCollidingPartIds as detectCollidingPartIdsMesh } from "./mesh-collision";
 
 /**
  * A cell is a valid pull-through overlap if it contains exactly one

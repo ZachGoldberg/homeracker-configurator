@@ -6,10 +6,12 @@ import { BASE_UNIT, PART_COLORS, GRID_EXTENT } from "../constants";
 import type { PlacedPart, InteractionMode, GridPosition, Rotation3, RotationStep, Axis, DragState, ClipboardData } from "../types";
 import { getPartDefinition } from "../data/catalog";
 import { isCustomPart, getCustomPartGeometry } from "../data/custom-parts";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { AssemblyState } from "../assembly/AssemblyState";
 import { nextOrientation, orientationToRotation, transformCell, rotateGridCells, computeGroundLift } from "../assembly/grid-utils";
 import { findBestSnap, findBestConnectorSnap, type GridRay } from "../assembly/snap";
-import { detectCollidingPartIds } from "../assembly/collision";
+import { detectCollidingPartIds, detectCollidingPartIdsMesh } from "../assembly/collision";
+import { registerPartGeometry, hasRegisteredGeometry } from "../assembly/geometry-registry";
 
 /**
  * Create a MeshStandardMaterial with a custom color, preserving surface detail
@@ -47,6 +49,7 @@ interface ViewportProps {
   flashPartId: string | null;
   snapEnabled: boolean;
   showCollisions: boolean;
+  fineMeshCollisions: boolean;
 }
 
 /** Convert grid coordinates to world position (mm).
@@ -221,6 +224,21 @@ function PartMeshLoaded({
   const cloned = useMemo(() => scene.clone(), [scene]);
   const worldPos = gridToWorld(part.position);
   const groupRef = useRef<THREE.Group>(null);
+
+  // Register merged geometry for collision detection (once per definition)
+  useEffect(() => {
+    if (hasRegisteredGeometry(part.definitionId)) return;
+    const geometries: THREE.BufferGeometry[] = [];
+    scene.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.geometry) {
+        geometries.push(child.geometry);
+      }
+    });
+    if (geometries.length > 0) {
+      const merged = geometries.length === 1 ? geometries[0].clone() : mergeGeometries(geometries, false);
+      if (merged) registerPartGeometry(part.definitionId, merged);
+    }
+  }, [scene, part.definitionId]);
 
   // Store original materials so we can restore them on deselect
   const originalMaterials = useRef<WeakMap<THREE.Mesh, THREE.Material>>(new WeakMap());
@@ -969,6 +987,7 @@ interface SceneProps extends ViewportProps {
   yLift: number;
   boxSelectActive: boolean;
   showCollisions: boolean;
+  fineMeshCollisions: boolean;
 }
 
 /** Scene contents — lives inside the Canvas */
@@ -992,14 +1011,16 @@ function Scene({
   snapEnabled,
   boxSelectActive,
   showCollisions,
+  fineMeshCollisions,
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
 
   // Compute which parts are colliding when enabled
   const collidingPartIds = useMemo(() => {
     if (!showCollisions) return new Set<string>();
+    if (fineMeshCollisions) return detectCollidingPartIdsMesh(assembly);
     return detectCollidingPartIds(assembly);
-  }, [showCollisions, parts]); // parts dependency ensures recompute on assembly changes
+  }, [showCollisions, fineMeshCollisions, parts]);
 
   const handleGroundClick = useCallback(
     (e: any) => {

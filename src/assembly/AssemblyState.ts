@@ -3,7 +3,27 @@ import { getPartDefinition } from "../data/catalog";
 import { getWorldCells, getAdjacentPosition, rotateGridCells, rotateDirection, transformDirection } from "./grid-utils";
 
 function gridKey(pos: GridPosition): string {
-  return `${pos[0]},${pos[1]},${pos[2]}`;
+  return `${Math.floor(pos[0])},${Math.floor(pos[1])},${Math.floor(pos[2])}`;
+}
+
+/**
+ * Each grid cell is a 1-unit cube: position P covers [P, P+1).
+ * A fractional cell like 14.7 covers [14.7, 15.7), overlapping integer
+ * cells 14 and 15. Register in all integer cells it touches.
+ */
+function gridKeysForCell(pos: GridPosition): string[] {
+  const xVals = [Math.floor(pos[0])];
+  const yVals = [Math.floor(pos[1])];
+  const zVals = [Math.floor(pos[2])];
+  if (pos[0] % 1 !== 0) xVals.push(Math.floor(pos[0]) + 1);
+  if (pos[1] % 1 !== 0) yVals.push(Math.floor(pos[1]) + 1);
+  if (pos[2] % 1 !== 0) zVals.push(Math.floor(pos[2]) + 1);
+  const keys: string[] = [];
+  for (const x of xVals)
+    for (const y of yVals)
+      for (const z of zVals)
+        keys.push(`${x},${y},${z}`);
+  return keys;
 }
 
 let nextId = 0;
@@ -15,6 +35,7 @@ export interface AssemblySnapshot {
   parts: PlacedPart[];
   snapEnabled: boolean;
   showCollisions: boolean;
+  fineMeshCollisions: boolean;
 }
 
 const SETTINGS_KEY = "homeracker-settings";
@@ -24,12 +45,14 @@ export class AssemblyState {
   /** Maps "x,y,z" grid key → instance IDs at that cell */
   gridOccupancy: Map<string, string[]> = new Map();
   private listeners: Set<() => void> = new Set();
-  private cachedSnapshot: AssemblySnapshot = { parts: [], snapEnabled: true, showCollisions: false };
+  private cachedSnapshot: AssemblySnapshot = { parts: [], snapEnabled: true, showCollisions: false, fineMeshCollisions: false };
 
   /** When true, parts snap to nearby connection points during placement/drag */
   snapEnabled: boolean = true;
   /** When true, overlapping grid cells are highlighted in red */
   showCollisions: boolean = false;
+  /** When true, use BVH mesh intersection for precise collision detection */
+  fineMeshCollisions: boolean = false;
 
   constructor() {
     try {
@@ -38,13 +61,14 @@ export class AssemblyState {
         const settings = JSON.parse(saved);
         if (settings.snapEnabled !== undefined) this.snapEnabled = !!settings.snapEnabled;
         if (settings.showCollisions !== undefined) this.showCollisions = !!settings.showCollisions;
+        if (settings.fineMeshCollisions !== undefined) this.fineMeshCollisions = !!settings.fineMeshCollisions;
       }
     } catch { /* ignore */ }
   }
 
   private persistSettings() {
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ snapEnabled: this.snapEnabled, showCollisions: this.showCollisions }));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ snapEnabled: this.snapEnabled, showCollisions: this.showCollisions, fineMeshCollisions: this.fineMeshCollisions }));
     } catch { /* ignore */ }
   }
 
@@ -60,6 +84,12 @@ export class AssemblyState {
     this.notify();
   }
 
+  setFineMeshCollisions(value: boolean) {
+    this.fineMeshCollisions = value;
+    this.persistSettings();
+    this.notify();
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -70,6 +100,7 @@ export class AssemblyState {
       parts: Array.from(this.parts.values()),
       snapEnabled: this.snapEnabled,
       showCollisions: this.showCollisions,
+      fineMeshCollisions: this.fineMeshCollisions,
     };
     for (const listener of this.listeners) {
       listener();
@@ -138,10 +169,13 @@ export class AssemblyState {
     const effectiveOrientation = orientation ?? "y";
     const worldCells = this.getRotatedWorldCells(def, position, rotation, effectiveOrientation);
     for (const worldCell of worldCells) {
-      const key = gridKey(worldCell);
-      const ids = this.gridOccupancy.get(key) || [];
-      ids.push(instanceId);
-      this.gridOccupancy.set(key, ids);
+      for (const key of gridKeysForCell(worldCell)) {
+        const ids = this.gridOccupancy.get(key) || [];
+        if (!ids.includes(instanceId)) {
+          ids.push(instanceId);
+        }
+        this.gridOccupancy.set(key, ids);
+      }
     }
 
     this.notify();
@@ -158,14 +192,15 @@ export class AssemblyState {
       const effectiveOrientation = part.orientation ?? "y";
       const worldCells = this.getRotatedWorldCells(def, part.position, part.rotation, effectiveOrientation);
       for (const worldCell of worldCells) {
-        const key = gridKey(worldCell);
-        const ids = this.gridOccupancy.get(key);
-        if (ids) {
-          const filtered = ids.filter((id) => id !== instanceId);
-          if (filtered.length === 0) {
-            this.gridOccupancy.delete(key);
-          } else {
-            this.gridOccupancy.set(key, filtered);
+        for (const key of gridKeysForCell(worldCell)) {
+          const ids = this.gridOccupancy.get(key);
+          if (ids) {
+            const filtered = ids.filter((id) => id !== instanceId);
+            if (filtered.length === 0) {
+              this.gridOccupancy.delete(key);
+            } else {
+              this.gridOccupancy.set(key, filtered);
+            }
           }
         }
       }

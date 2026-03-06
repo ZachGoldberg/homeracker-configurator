@@ -449,6 +449,10 @@ export function App() {
     assembly.setShowCollisions(!assembly.showCollisions);
   }, []);
 
+  const handleToggleFineMesh = useCallback(() => {
+    assembly.setFineMeshCollisions(!assembly.fineMeshCollisions);
+  }, []);
+
   const [toast, setToast] = useState<string | null>(null);
 
   const handleShare = useCallback(async () => {
@@ -572,6 +576,8 @@ export function App() {
           onToggleSnap={handleToggleSnap}
           showCollisions={snapshot.showCollisions}
           onToggleCollisions={handleToggleCollisions}
+          fineMeshCollisions={snapshot.fineMeshCollisions}
+          onToggleFineMesh={handleToggleFineMesh}
         />
         <ViewportCanvas
           parts={snapshot.parts}
@@ -591,6 +597,7 @@ export function App() {
           flashPartId={flashPartId}
           snapEnabled={snapshot.snapEnabled}
           showCollisions={snapshot.showCollisions}
+          fineMeshCollisions={snapshot.fineMeshCollisions}
         />
       </div>
       <BOMPanel entries={bom} selectedPartIds={selectedPartIds} parts={snapshot.parts} onFlashPart={handleFlashPart} onSetColor={handleSetColor} />
