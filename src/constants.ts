@@ -45,4 +45,5 @@ export const PART_COLORS = {
   selected: "#00aaff",
   other: "#4a9e4a",      // HR_GREEN (misc/other parts)
   custom: "#6b3a7d",
+  collision: "#ff0000",
 } as const;

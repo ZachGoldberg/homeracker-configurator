@@ -9,6 +9,7 @@ import { isCustomPart, getCustomPartGeometry } from "../data/custom-parts";
 import { AssemblyState } from "../assembly/AssemblyState";
 import { nextOrientation, orientationToRotation, transformCell, rotateGridCells, computeGroundLift } from "../assembly/grid-utils";
 import { findBestSnap, findBestConnectorSnap, type GridRay } from "../assembly/snap";
+import { detectCollidingPartIds } from "../assembly/collision";
 
 /**
  * Create a MeshStandardMaterial with a custom color, preserving surface detail
@@ -45,6 +46,7 @@ interface ViewportProps {
   onEscape: () => void;
   flashPartId: string | null;
   snapEnabled: boolean;
+  showCollisions: boolean;
 }
 
 /** Convert grid coordinates to world position (mm).
@@ -96,6 +98,7 @@ function PartMesh({
   isDragging,
   isPlacing,
   isFlashing,
+  isColliding,
   onPointerDown,
 }: {
   part: PlacedPart;
@@ -103,18 +106,19 @@ function PartMesh({
   isDragging: boolean;
   isPlacing: boolean;
   isFlashing: boolean;
+  isColliding: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId);
   if (!def) return null;
 
   if (isCustomPart(part.definitionId)) {
-    return <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} onPointerDown={onPointerDown} />;
+    return <CustomPartMesh part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} isColliding={isColliding} onPointerDown={onPointerDown} />;
   }
 
   return (
     <Suspense fallback={<PartMeshFallback part={part} isSelected={isSelected} onClick={() => { }} />}>
-      <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} onPointerDown={onPointerDown} />
+      <PartMeshLoaded part={part} isSelected={isSelected} isDragging={isDragging} isPlacing={isPlacing} isFlashing={isFlashing} isColliding={isColliding} onPointerDown={onPointerDown} />
     </Suspense>
   );
 }
@@ -126,6 +130,7 @@ function CustomPartMesh({
   isDragging,
   isPlacing,
   isFlashing,
+  isColliding,
   onPointerDown,
 }: {
   part: PlacedPart;
@@ -133,6 +138,7 @@ function CustomPartMesh({
   isDragging: boolean;
   isPlacing: boolean;
   isFlashing: boolean;
+  isColliding: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId)!;
@@ -162,7 +168,7 @@ function CustomPartMesh({
   });
 
   const categoryColor = part.color ?? PART_COLORS.custom;
-  const color = isSelected ? PART_COLORS.selected : categoryColor;
+  const color = isSelected ? PART_COLORS.selected : isColliding ? PART_COLORS.collision : categoryColor;
   const opacity = isDragging ? 0.3 : 1;
 
   return (
@@ -199,6 +205,7 @@ function PartMeshLoaded({
   isDragging,
   isPlacing,
   isFlashing,
+  isColliding,
   onPointerDown,
 }: {
   part: PlacedPart;
@@ -206,6 +213,7 @@ function PartMeshLoaded({
   isDragging: boolean;
   isPlacing: boolean;
   isFlashing: boolean;
+  isColliding: boolean;
   onPointerDown: (e: any) => void;
 }) {
   const def = getPartDefinition(part.definitionId)!;
@@ -248,6 +256,11 @@ function PartMeshLoaded({
             mat.emissiveIntensity = 0.3;
             child.material = mat;
           }
+        } else if (isColliding) {
+          child.material = makeColorMaterial(PART_COLORS.collision, orig, {
+            emissive: new THREE.Color(PART_COLORS.collision),
+            emissiveIntensity: 0.4,
+          });
         } else if (part.color) {
           child.material = makeColorMaterial(part.color, orig);
         } else {
@@ -257,7 +270,7 @@ function PartMeshLoaded({
         }
       }
     });
-  }, [isSelected, isDragging, isFlashing, part.color]);
+  }, [isSelected, isDragging, isFlashing, isColliding, part.color]);
 
   // Flash animation for "find part" from selection panel
   const flashStart = useRef(0);
@@ -955,6 +968,7 @@ interface SceneProps extends ViewportProps {
   onPartPointerDown: (instanceId: string, nativeEvent: PointerEvent) => void;
   yLift: number;
   boxSelectActive: boolean;
+  showCollisions: boolean;
 }
 
 /** Scene contents — lives inside the Canvas */
@@ -977,8 +991,15 @@ function Scene({
   flashPartId,
   snapEnabled,
   boxSelectActive,
+  showCollisions,
 }: SceneProps) {
   const groundRef = useRef<THREE.Mesh>(null);
+
+  // Compute which parts are colliding when enabled
+  const collidingPartIds = useMemo(() => {
+    if (!showCollisions) return new Set<string>();
+    return detectCollidingPartIds(assembly);
+  }, [showCollisions, parts]); // parts dependency ensures recompute on assembly changes
 
   const handleGroundClick = useCallback(
     (e: any) => {
@@ -1054,6 +1075,7 @@ function Scene({
           isDragging={dragState?.instanceId === part.instanceId}
           isPlacing={mode.type === "place"}
           isFlashing={flashPartId === part.instanceId}
+          isColliding={collidingPartIds.has(part.instanceId)}
           onPointerDown={(e) => onPartPointerDown(part.instanceId, e.nativeEvent)}
         />
       ))}

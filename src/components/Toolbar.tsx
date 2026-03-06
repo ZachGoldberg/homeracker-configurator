@@ -13,6 +13,8 @@ interface ToolbarProps {
   mode: InteractionMode;
   snapEnabled: boolean;
   onToggleSnap: () => void;
+  showCollisions: boolean;
+  onToggleCollisions: () => void;
 }
 
 export function Toolbar({
@@ -28,6 +30,8 @@ export function Toolbar({
   mode,
   snapEnabled,
   onToggleSnap,
+  showCollisions,
+  onToggleCollisions,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -82,6 +86,13 @@ export function Toolbar({
           title="Toggle snap-to-connection points"
         >
           Snap: {snapEnabled ? "On" : "Off"}
+        </button>
+        <button
+          className={`toolbar-btn${showCollisions ? " toolbar-btn-active" : ""}`}
+          onClick={onToggleCollisions}
+          title="Highlight overlapping/colliding parts"
+        >
+          Show Collisions: {showCollisions ? "On" : "Off"}
         </button>
       </div>
 

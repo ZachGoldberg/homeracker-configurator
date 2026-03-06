@@ -445,6 +445,10 @@ export function App() {
     assembly.setSnapEnabled(!assembly.snapEnabled);
   }, []);
 
+  const handleToggleCollisions = useCallback(() => {
+    assembly.setShowCollisions(!assembly.showCollisions);
+  }, []);
+
   const [toast, setToast] = useState<string | null>(null);
 
   const handleShare = useCallback(async () => {
@@ -566,6 +570,8 @@ export function App() {
           mode={mode}
           snapEnabled={snapshot.snapEnabled}
           onToggleSnap={handleToggleSnap}
+          showCollisions={snapshot.showCollisions}
+          onToggleCollisions={handleToggleCollisions}
         />
         <ViewportCanvas
           parts={snapshot.parts}
@@ -584,6 +590,7 @@ export function App() {
           onEscape={handleEscape}
           flashPartId={flashPartId}
           snapEnabled={snapshot.snapEnabled}
+          showCollisions={snapshot.showCollisions}
         />
       </div>
       <BOMPanel entries={bom} selectedPartIds={selectedPartIds} parts={snapshot.parts} onFlashPart={handleFlashPart} onSetColor={handleSetColor} />

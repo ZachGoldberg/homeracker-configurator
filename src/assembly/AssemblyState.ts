@@ -14,19 +14,22 @@ function generateId(): string {
 export interface AssemblySnapshot {
   parts: PlacedPart[];
   snapEnabled: boolean;
+  showCollisions: boolean;
 }
 
 const SETTINGS_KEY = "homeracker-settings";
 
 export class AssemblyState {
   private parts: Map<string, PlacedPart> = new Map();
-  /** Maps "x,y,z" grid key → instance IDs at that cell (used by BOM lock-pin calculation) */
-  private gridOccupancy: Map<string, string[]> = new Map();
+  /** Maps "x,y,z" grid key → instance IDs at that cell */
+  gridOccupancy: Map<string, string[]> = new Map();
   private listeners: Set<() => void> = new Set();
-  private cachedSnapshot: AssemblySnapshot = { parts: [], snapEnabled: true };
+  private cachedSnapshot: AssemblySnapshot = { parts: [], snapEnabled: true, showCollisions: false };
 
   /** When true, parts snap to nearby connection points during placement/drag */
   snapEnabled: boolean = true;
+  /** When true, overlapping grid cells are highlighted in red */
+  showCollisions: boolean = false;
 
   constructor() {
     try {
@@ -34,15 +37,26 @@ export class AssemblyState {
       if (saved) {
         const settings = JSON.parse(saved);
         if (settings.snapEnabled !== undefined) this.snapEnabled = !!settings.snapEnabled;
+        if (settings.showCollisions !== undefined) this.showCollisions = !!settings.showCollisions;
       }
+    } catch { /* ignore */ }
+  }
+
+  private persistSettings() {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ snapEnabled: this.snapEnabled, showCollisions: this.showCollisions }));
     } catch { /* ignore */ }
   }
 
   setSnapEnabled(value: boolean) {
     this.snapEnabled = value;
-    try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify({ snapEnabled: this.snapEnabled }));
-    } catch { /* ignore */ }
+    this.persistSettings();
+    this.notify();
+  }
+
+  setShowCollisions(value: boolean) {
+    this.showCollisions = value;
+    this.persistSettings();
     this.notify();
   }
 
@@ -55,6 +69,7 @@ export class AssemblyState {
     this.cachedSnapshot = {
       parts: Array.from(this.parts.values()),
       snapEnabled: this.snapEnabled,
+      showCollisions: this.showCollisions,
     };
     for (const listener of this.listeners) {
       listener();
