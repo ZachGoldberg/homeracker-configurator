@@ -22,7 +22,7 @@ HOMERACKER_REPO="${1:-$(cd "${PROJECT_ROOT}/../homeracker" && pwd)}"
 
 OPENSCAD="${HOMERACKER_REPO}/bin/openscad/openscad"
 OPENSCADPATH="${HOMERACKER_REPO}/bin/openscad/libraries"
-MANIFEST="${SCRIPT_DIR}/model-manifest.json"
+MANIFEST="${PROJECT_ROOT}/src/data/model-manifest.json"
 STL_DIR="${PROJECT_ROOT}/tmp-stl"
 GLB_DIR="${PROJECT_ROOT}/public/models"
 

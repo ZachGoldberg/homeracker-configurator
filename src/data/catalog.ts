@@ -2,6 +2,7 @@ import type { PartDefinition, ConnectionPoint, GridPosition } from "../types";
 import { getArmDirections, CONNECTOR_CONFIGS } from "./connector-configs";
 import { getCustomPartDefinition, getCustomParts } from "./custom-parts";
 import rawModelsManifest from "./raw-models-manifest.json";
+import modelManifest from "./model-manifest.json";
 
 /** Generate connection points for a connector from its arm config */
 function connectorConnectionPoints(configId: string): ConnectionPoint[] {
@@ -64,62 +65,12 @@ export const PART_CATALOG: PartDefinition[] = [
   // Supports (1u through 18u)
   ...Array.from({ length: 18 }, (_, i) => supportDef(i + 1)),
 
-  // Connectors — all base variants
-  connectorDef("1d1w"),
-  connectorDef("1d2w"),
-  connectorDef("2d2w"),
-  connectorDef("2d3w"),
-  connectorDef("2d4w"),
-  connectorDef("3d3w"),
-  connectorDef("3d4w"),
-  connectorDef("3d5w"),
-  connectorDef("3d6w"),
-
-  // Connectors — foot variants
-  connectorDef("2d2w", true),
-  connectorDef("2d3w", true),
-  connectorDef("2d4w", true),
-  connectorDef("3d3w", true),
-  connectorDef("3d4w", true),
-  connectorDef("3d5w", true),
-  connectorDef("3d6w", true),
-
-  // Connectors — pull-through variants (base)
-  connectorDef("1d1w", false, "z"),
-  connectorDef("1d2w", false, "z"),
-
-  connectorDef("2d2w", false, "z"),
-  connectorDef("2d2w", false, "x"),
-  connectorDef("2d3w", false, "z"),
-  connectorDef("2d3w", false, "x"),
-  connectorDef("2d4w", false, "z"),
-  connectorDef("2d4w", false, "x"),
-
-  connectorDef("3d3w", false, "z"),
-  connectorDef("3d3w", false, "x"),
-  connectorDef("3d3w", false, "y"),
-  connectorDef("3d4w", false, "z"),
-  connectorDef("3d4w", false, "x"),
-  connectorDef("3d4w", false, "y"),
-  connectorDef("3d5w", false, "z"),
-  connectorDef("3d5w", false, "x"),
-  connectorDef("3d5w", false, "y"),
-  connectorDef("3d6w", false, "z"),
-  connectorDef("3d6w", false, "x"),
-  connectorDef("3d6w", false, "y"),
-
-  // Connectors — foot + pull-through variants (z-axis PT overridden by foot)
-  connectorDef("2d2w", true, "x"),
-  connectorDef("2d3w", true, "x"),
-  connectorDef("2d4w", true, "x"),
-  connectorDef("3d3w", true, "x"),
-  connectorDef("3d3w", true, "y"),
-  connectorDef("3d4w", true, "x"),
-  connectorDef("3d4w", true, "y"),
-  connectorDef("3d5w", true, "x"),
-  connectorDef("3d5w", true, "y"),
-  connectorDef("3d6w", true, "x"),
-  connectorDef("3d6w", true, "y"),
+  // Connectors — generated from model manifest
+  ...modelManifest.connectors.map((c) => {
+    const configId = `${c.params.dimensions}d${c.params.directions}w`;
+    const pt = c.params.pull_through_axis !== "none" ? c.params.pull_through_axis as "x" | "y" | "z" : undefined;
+    return connectorDef(configId, c.params.is_foot, pt);
+  }),
 
   // Lock pins
   {
