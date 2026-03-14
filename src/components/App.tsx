@@ -9,7 +9,7 @@ import type { InteractionMode, GridPosition, PlacedPart, Axis, Rotation3, Clipbo
 import { findBestSnap, findSnapPoints, findBestConnectorSnap, findConnectorSnapPoints, computeAutoRotation } from "../assembly/snap";
 import { computeGroundLift } from "../assembly/grid-utils";
 import { detectCollidingPartIds, detectCollidingPartIdsMesh } from "../assembly/collision";
-import { restoreCustomParts, importModelFile, isCustomPart } from "../data/custom-parts";
+import { restoreCustomParts, importModelFile, isCustomPart, getEmbeddedCustomParts, restoreEmbeddedCustomParts } from "../data/custom-parts";
 import { encodeAssemblyToHash, decodeAssemblyFromHash, hasCustomParts } from "../sharing/url-sharing";
 
 // Global singleton instances
@@ -410,8 +410,13 @@ export function App() {
     setSelectedPartIds(new Set());
   }, []);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const data = assembly.serialize();
+    // Embed custom STL/3MF binaries so the file is portable
+    const embedded = await getEmbeddedCustomParts(data.parts.map((p) => p.type));
+    if (embedded.length > 0) {
+      data.customParts = embedded;
+    }
     const blob = new Blob([JSON.stringify(data, null, 2)], {
       type: "application/json",
     });
@@ -433,6 +438,10 @@ export function App() {
       const text = await file.text();
       try {
         const data = JSON.parse(text);
+        // Restore embedded custom parts before deserializing the assembly
+        if (data.customParts && Array.isArray(data.customParts)) {
+          await restoreEmbeddedCustomParts(data.customParts);
+        }
         assembly.deserialize(data);
         history.clear();
         setSelectedPartIds(new Set());

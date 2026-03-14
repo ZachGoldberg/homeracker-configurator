@@ -97,6 +97,16 @@ export interface BOMEntry {
   quantity: number;
 }
 
+/** Embedded custom part data for portable save files */
+export interface EmbeddedCustomPart {
+  id: string;
+  name: string;
+  format: "stl" | "3mf";
+  gridCells: GridPosition[];
+  /** Base64-encoded binary data */
+  data: string;
+}
+
 /** Serialized assembly format */
 export interface AssemblyFile {
   version: "1.0";
@@ -108,4 +118,6 @@ export interface AssemblyFile {
     orientation?: Axis;
     color?: string;
   }>;
+  /** Embedded custom part binaries for portability */
+  customParts?: EmbeddedCustomPart[];
 }

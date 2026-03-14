@@ -79,6 +79,16 @@ export async function loadAllSTLBuffers(): Promise<Map<string, ArrayBuffer>> {
   });
 }
 
+export async function loadSTLBuffer(id: string): Promise<ArrayBuffer | undefined> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readonly");
+    const req = tx.objectStore(STORE_NAME).get(id);
+    req.onsuccess = () => resolve(req.result as ArrayBuffer | undefined);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 export async function deleteSTLBuffer(id: string): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {

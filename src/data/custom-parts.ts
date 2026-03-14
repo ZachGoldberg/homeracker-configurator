@@ -8,9 +8,11 @@ import {
   saveCustomPartsMeta,
   loadCustomPartsMeta,
   loadAllSTLBuffers,
+  loadSTLBuffer,
   deleteSTLBuffer,
   type CustomPartMeta,
 } from "./custom-parts-storage";
+import type { EmbeddedCustomPart } from "../types";
 
 const stlLoader = new STLLoader();
 
@@ -448,5 +450,101 @@ export async function restoreCustomParts(): Promise<void> {
     }
   }
 
+  notify();
+}
+
+/**
+ * Build embedded custom part data for all custom parts referenced in a part list.
+ * Loads binary buffers from IndexedDB and base64-encodes them.
+ */
+export async function getEmbeddedCustomParts(partTypes: string[]): Promise<EmbeddedCustomPart[]> {
+  const uniqueCustomIds = [...new Set(partTypes.filter((t) => isCustomPart(t)))];
+  if (uniqueCustomIds.length === 0) return [];
+
+  const embedded: EmbeddedCustomPart[] = [];
+  for (const id of uniqueCustomIds) {
+    const def = getCustomPartDefinition(id);
+    if (!def) continue;
+
+    let buffer: ArrayBuffer | undefined;
+    try {
+      buffer = await loadSTLBuffer(id);
+    } catch {
+      continue;
+    }
+    if (!buffer) continue;
+
+    // ArrayBuffer → base64
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const data = btoa(binary);
+
+    const format: "stl" | "3mf" = id.startsWith("custom-3mf-") ? "3mf" : "stl";
+    embedded.push({
+      id,
+      name: def.name,
+      format,
+      gridCells: def.gridCells,
+      data,
+    });
+  }
+
+  return embedded;
+}
+
+/**
+ * Restore embedded custom parts from a loaded save file.
+ * Skips parts whose IDs already exist in the geometry store.
+ */
+export async function restoreEmbeddedCustomParts(embedded: EmbeddedCustomPart[]): Promise<void> {
+  for (const entry of embedded) {
+    if (geometryStore.has(entry.id)) continue; // Already loaded
+
+    // Base64 → ArrayBuffer
+    const binary = atob(entry.data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const buffer = bytes.buffer;
+
+    try {
+      const geometry = parseStoredBuffer(buffer, entry.format);
+      const { gridCells } = voxelizeGeometry(geometry);
+      geometry.center();
+
+      const def: PartDefinition = {
+        id: entry.id,
+        category: "custom",
+        name: entry.name,
+        description: `Imported ${entry.format.toUpperCase()} (${gridCells.length} cells)`,
+        modelPath: "",
+        connectionPoints: [],
+        gridCells,
+      };
+
+      geometryStore.set(entry.id, geometry);
+      customDefinitions.push(def);
+
+      // Persist to IndexedDB + localStorage so it sticks around
+      await saveSTLBuffer(entry.id, buffer);
+    } catch {
+      // Skip corrupt entries
+    }
+  }
+
+  // Update nextId to avoid collisions
+  for (const entry of embedded) {
+    const match = entry.id.match(/^custom-(?:stl|3mf)-(\d+)$/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (num >= nextId) nextId = num + 1;
+    }
+  }
+
+  persistMeta();
   notify();
 }
