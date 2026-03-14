@@ -71,6 +71,29 @@ export function isCustomPart(defId: string): boolean {
   return geometryStore.has(defId);
 }
 
+/** Download the original STL/3MF file for a custom part */
+export async function downloadCustomPart(defId: string): Promise<void> {
+  const def = getCustomPartDefinition(defId);
+  if (!def) return;
+
+  let buffer: ArrayBuffer | undefined;
+  try {
+    buffer = await loadSTLBuffer(defId);
+  } catch {
+    return;
+  }
+  if (!buffer) return;
+
+  const format: ModelFormat = defId.startsWith("custom-3mf-") ? "3mf" : "stl";
+  const blob = new Blob([buffer], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${def.name.replace(/\s+/g, "-").toLowerCase()}.${format}`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** Delete a custom part from the library (geometry store, definitions, and persistence) */
 export async function deleteCustomPart(defId: string): Promise<void> {
   const idx = customDefinitions.findIndex((d) => d.id === defId);

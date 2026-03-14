@@ -1,7 +1,7 @@
 import { useState, useSyncExternalStore, useCallback } from "react";
 import { PART_CATALOG } from "../data/catalog";
 import { PART_COLORS } from "../constants";
-import { subscribeCustomParts, getCustomPartsSnapshot, importModelFile, deleteCustomPart } from "../data/custom-parts";
+import { subscribeCustomParts, getCustomPartsSnapshot, importModelFile, deleteCustomPart, downloadCustomPart } from "../data/custom-parts";
 import { useThumbnail } from "../thumbnails/useThumbnail";
 import type { InteractionMode, PartCategory, PartDefinition } from "../types";
 
@@ -274,6 +274,16 @@ export function Sidebar({ onSelectPart, activeMode }: SidebarProps) {
                           isActive={activePlaceId === part.id}
                           onSelect={() => onSelectPart(part.id)}
                         />
+                        <button
+                          className="catalog-item-download"
+                          title={`Download ${part.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadCustomPart(part.id);
+                          }}
+                        >
+                          &#8595;
+                        </button>
                         <button
                           className="catalog-item-delete"
                           title={`Remove ${part.name}`}

@@ -267,6 +267,33 @@
     flex: 1;
   }
 
+  .catalog-item-download {
+    position: absolute;
+    top: 2px;
+    right: 20px;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: #555;
+    color: #fff;
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .catalog-item-wrapper:hover .catalog-item-download {
+    opacity: 1;
+  }
+
+  .catalog-item-download:hover {
+    filter: brightness(1.2);
+  }
+
   .catalog-item-delete {
     position: absolute;
     top: 2px;
